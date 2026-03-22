@@ -787,6 +787,11 @@ const App = {
         
         Projects.addPhase(projectId, name, budget);
         this.hideModal();
+
+        // Okamzity refresh detailu po lokalnej zmene (bez manualneho reloadu stranky)
+        if (this.currentPage === 'project-detail' && this.currentProjectId === projectId) {
+            this.refreshProjectDetail();
+        }
     },
 
     saveNewTransaction(projectId) {
@@ -830,6 +835,11 @@ const App = {
     deletePhase(projectId, phaseId) {
         if(confirm('Naozaj chcete odstrániť túto fázu a všetky jej výdavky?')) {
             Projects.deletePhase(projectId, phaseId);
+
+            // Okamzity refresh detailu po lokalnej zmene (bez manualneho reloadu stranky)
+            if (this.currentPage === 'project-detail' && this.currentProjectId === projectId) {
+                this.refreshProjectDetail();
+            }
         }
     },
 
