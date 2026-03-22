@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tracker-v6';
+const CACHE_NAME = 'tracker-v7';
 const urlsToCache = [
   './',
   './index.html',
@@ -7,6 +7,8 @@ const urlsToCache = [
   './icon.svg',
   './../shared/store.js?v=7',
   './../shared/projects.js?v=7',
+  './../shared/ui-helpers.js?v=7',
+  './../shared/task-helpers.js?v=7',
   'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
   'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap'
 ];
@@ -18,6 +20,7 @@ self.addEventListener('install', event => {
         console.log('Opened cache');
         return cache.addAll(urlsToCache);
       })
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -50,6 +53,6 @@ self.addEventListener('activate', event => {
           }
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
 });
