@@ -816,6 +816,11 @@ const App = {
         
         Projects.updatePhase(projectId, phaseId, { name, budget, expectedExtra, notes });
         this.hideModal();
+
+        // Okamzity refresh detailu po lokalnej zmene (bez manualneho reloadu stranky)
+        if (this.currentPage === 'project-detail' && this.currentProjectId === projectId) {
+            this.refreshProjectDetail();
+        }
     },
 
     updatePhaseProgress(projectId, phaseId, progress) {
