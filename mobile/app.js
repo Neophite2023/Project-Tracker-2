@@ -3,9 +3,19 @@ const App = {
     currentProjectId: null,
 
     init() {
-        this.navigate('dashboard');
+        // Počká na prvú synchronizáciu pred renderovaním
+        const syncPromise = Store.initSync();
         
-        Store.initSync();
+        if (syncPromise && syncPromise.then) {
+            syncPromise.then(() => {
+                this.navigate('dashboard');
+            }).catch(() => {
+                this.navigate('dashboard');
+            });
+        } else {
+            this.navigate('dashboard');
+        }
+        
         this.setupStatusIndicator();
         this.setupSheetGestures();
         this.setupDataListeners();
@@ -278,7 +288,7 @@ const App = {
 
             <h4 style="margin-bottom: 1rem; font-weight: 800;">Fázy a úlohy</h4>
             ${stats.phaseStats.map(ph => `
-                <div class="m-phase">
+                <div class="m-phase" data-phase-id="${ph.id}">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-weight: 700; font-size: 0.9rem;">
                         <span>${ph.name}</span>
                         <span style="color: ${ph.isOverBudget ? '#ef4444' : 'var(--primary)'}">${ph.progress}%</span>
@@ -314,7 +324,30 @@ const App = {
         if (!text) return;
         
         Projects.addTask(projectId, phaseId, text);
-        this.showProjectDetail(projectId); // Refresh detailu
+        input.value = ''; // Vymaž input
+        
+        // Aktualizuj obsah bez zavretia/otvárania okna
+        const project = Projects.get(projectId);
+        if (project) {
+            const stats = Projects.calculateStats(project);
+            const phaseStats = stats.phaseStats;
+            const ph = phaseStats.find(p => p.id === phaseId);
+            
+            if (ph) {
+                const tasksHtml = (ph.tasks || []).map(t => `
+                    <label class="m-task">
+                        <input type="checkbox" ${t.completed ? 'checked' : ''} onchange="App.toggleTask('${projectId}', '${phaseId}', '${t.id}')">
+                        <span style="${t.completed ? 'text-decoration: line-through; color: var(--text-muted);' : ''}">${t.text}</span>
+                    </label>
+                `).join('');
+                
+                // Nájdi prvok s úlohami a aktualizuj
+                const tasksContainer = document.querySelector(`[data-phase-id="${phaseId}"] .m-tasks`);
+                if (tasksContainer) {
+                    tasksContainer.innerHTML = tasksHtml;
+                }
+            }
+        }
     },
 
     // --- ADD TRANSACTION ---

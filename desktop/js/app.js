@@ -16,10 +16,23 @@ const App = {
         
         this.clearLegacyServiceWorkers();
         this.bindEvents();
-        this.navigate(this.currentPage);
-        
-        Store.initSync();
         this.setupStatusIndicator();
+        
+        // Počká na prvú synchronizáciu pred renderovaním
+        const syncPromise = Store.initSync();
+        
+        if (syncPromise && syncPromise.then) {
+            syncPromise.then(() => {
+                console.log("First sync complete, rendering dashboard");
+                this.navigate(this.currentPage);
+            }).catch(() => {
+                console.log("Sync failed or offline, rendering with local data");
+                this.navigate(this.currentPage);
+            });
+        } else {
+            // Ak je offline, initSync vracia resolve()
+            this.navigate(this.currentPage);
+        }
     },
 
     clearLegacyServiceWorkers() {
@@ -578,8 +591,13 @@ const App = {
         // Oprava: Spravíme prepočet tu pre UI.)
         
         if (phase.tasks && phase.tasks.length > 0) {
-            const completedCount = phase.tasks.filter(t => t.completed).length;
-            phase.progress = Math.round((completedCount / phase.tasks.length) * 100);
+            const activeTasks = phase.tasks.filter(t => !t.deleted);
+            if (activeTasks.length > 0) {
+                const completedCount = activeTasks.filter(t => t.completed).length;
+                phase.progress = Math.round((completedCount / activeTasks.length) * 100);
+            } else {
+                phase.progress = 0;
+            }
             
             // Update UI Fázy
             const barEl = document.getElementById(`phase-progress-bar-${phaseId}`);

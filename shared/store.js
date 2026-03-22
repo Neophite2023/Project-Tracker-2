@@ -53,17 +53,19 @@ const Store = {
             window.dispatchEvent(new CustomEvent('syncError'));
         });
         
-        // Prve stiahnutie
-        if (navigator.onLine) {
-            this.fetchData();
-        }
-
-        // Pravidelny polling (kazdych 10 sekund)
+        // Pravidelny polling (kazdych 10 sekund) - VŽDY sa musí nastaviť
         this.syncInterval = setInterval(() => {
             if (navigator.onLine && !this.isSyncing) {
                 this.fetchData();
             }
         }, 10000);
+        
+        // Prve stiahnutie - vratime promise ak je online
+        if (navigator.onLine) {
+            return this.fetchData();
+        } else {
+            return Promise.resolve();
+        }
     },
     
     triggerSync() {
@@ -141,8 +143,8 @@ const Store = {
                 }
             }
             
-            // Pošleme naše dáta naspäť na server
-            await this.pushData();
+            // NEBUDI PUSHTAT v fetchData - let server be dominant!
+            // pushData() sa ma volat LEN ked USER zmeni data (saveProjects, addTask, atd)
             
             window.dispatchEvent(new CustomEvent('syncSuccess'));
 
