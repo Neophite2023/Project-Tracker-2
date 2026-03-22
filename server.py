@@ -7,9 +7,10 @@ import threading
 import time
 import logging
 import errno
+import sqlite3
 
 PORT = 8005
-DATA_FILE = 'shared/data.json'
+DB_FILE = 'shared/data.db'
 
 # Setup logging
 logging.basicConfig(
@@ -21,6 +22,464 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+class DataStore:
+    """Primary relational SQLite storage."""
+
+    def __init__(self, db_path):
+        self.db_path = db_path
+        self.lock = threading.Lock()
+        self._ensure_shared_dir()
+        self._init_db()
+        self._bootstrap_migrate()
+
+    def _ensure_shared_dir(self):
+        shared_dir = os.path.dirname(self.db_path) or 'shared'
+        if not os.path.exists(shared_dir):
+            os.makedirs(shared_dir)
+
+    def _connect(self):
+        conn = sqlite3.connect(self.db_path, timeout=5)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON;")
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        return conn
+
+    def _init_db(self):
+        with self._connect() as conn:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS projects (
+                    id TEXT PRIMARY KEY,
+                    order_idx INTEGER NOT NULL,
+                    data_json TEXT NOT NULL,
+                    updated_at REAL NOT NULL DEFAULT 0,
+                    deleted INTEGER NOT NULL DEFAULT 0
+                );
+
+                CREATE TABLE IF NOT EXISTS phases (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    order_idx INTEGER NOT NULL,
+                    data_json TEXT NOT NULL,
+                    updated_at REAL NOT NULL DEFAULT 0,
+                    deleted INTEGER NOT NULL DEFAULT 0,
+                    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    phase_id TEXT NOT NULL,
+                    order_idx INTEGER NOT NULL,
+                    data_json TEXT NOT NULL,
+                    updated_at REAL NOT NULL DEFAULT 0,
+                    deleted INTEGER NOT NULL DEFAULT 0,
+                    completed INTEGER NOT NULL DEFAULT 0,
+                    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                    FOREIGN KEY(phase_id) REFERENCES phases(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    phase_id TEXT NULL,
+                    order_idx INTEGER NOT NULL,
+                    data_json TEXT NOT NULL,
+                    updated_at REAL NOT NULL DEFAULT 0,
+                    deleted INTEGER NOT NULL DEFAULT 0,
+                    amount REAL NOT NULL DEFAULT 0,
+                    category TEXT NULL,
+                    tx_date TEXT NULL,
+                    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    data_json TEXT NOT NULL,
+                    updated_at REAL NOT NULL DEFAULT 0
+                );
+
+                CREATE TABLE IF NOT EXISTS meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+
+                -- Legacy snapshot table kept for safe transition/rollback.
+                CREATE TABLE IF NOT EXISTS app_state (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    payload_json TEXT NOT NULL,
+                    timestamp REAL NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_phases_project_order ON phases(project_id, order_idx);
+                CREATE INDEX IF NOT EXISTS idx_tasks_phase_order ON tasks(phase_id, order_idx);
+                CREATE INDEX IF NOT EXISTS idx_tx_project_order ON transactions(project_id, order_idx);
+                """
+            )
+
+    def _extract_timestamp(self, payload):
+        try:
+            return float((payload or {}).get("timestamp", 0) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _extract_updated_at(self, obj):
+        try:
+            return float((obj or {}).get("updatedAt", 0) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _normalize_payload(self, payload):
+        if not isinstance(payload, dict):
+            raise ValueError("Payload must be a JSON object")
+
+        projects = payload.get("projects", [])
+        if not isinstance(projects, list):
+            projects = []
+
+        normalized = {
+            "projects": projects,
+            "timestamp": self._extract_timestamp(payload) or time.time()
+        }
+        if "settings" in payload:
+            normalized["settings"] = payload.get("settings")
+        return normalized
+
+    def _safe_id(self, value, prefix, index):
+        text = str(value or "").strip()
+        if text:
+            return text
+        return f"{prefix}_{int(time.time() * 1000)}_{index}"
+
+    def _safe_float(self, value, default=0.0):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return float(default)
+
+    def _read_legacy_snapshot(self):
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload_json FROM app_state WHERE id = 1"
+            ).fetchone()
+        if not row:
+            return None
+        return self._normalize_payload(json.loads(row["payload_json"]))
+
+    def _read_relational_payload(self):
+        with self._connect() as conn:
+            project_rows = conn.execute(
+                "SELECT id, data_json FROM projects ORDER BY order_idx, id"
+            ).fetchall()
+            if not project_rows:
+                return None
+
+            phase_rows = conn.execute(
+                "SELECT id, project_id, data_json FROM phases ORDER BY project_id, order_idx, id"
+            ).fetchall()
+            task_rows = conn.execute(
+                "SELECT id, phase_id, data_json FROM tasks ORDER BY phase_id, order_idx, id"
+            ).fetchall()
+            tx_rows = conn.execute(
+                "SELECT id, project_id, data_json FROM transactions ORDER BY project_id, order_idx, id"
+            ).fetchall()
+            settings_row = conn.execute(
+                "SELECT data_json FROM settings WHERE id = 1"
+            ).fetchone()
+            ts_row = conn.execute(
+                "SELECT value FROM meta WHERE key = 'timestamp'"
+            ).fetchone()
+
+        phases_by_project = {}
+        phase_map = {}
+        for row in phase_rows:
+            try:
+                phase = json.loads(row["data_json"])
+            except Exception:
+                logger.warning("Skipping invalid phase JSON for id=%s", row["id"])
+                continue
+
+            phase.setdefault("id", row["id"])
+            phase["tasks"] = []
+            phases_by_project.setdefault(row["project_id"], []).append(phase)
+            phase_map[row["id"]] = phase
+
+        for row in task_rows:
+            phase = phase_map.get(row["phase_id"])
+            if not phase:
+                continue
+            try:
+                task = json.loads(row["data_json"])
+            except Exception:
+                logger.warning("Skipping invalid task JSON for id=%s", row["id"])
+                continue
+            task.setdefault("id", row["id"])
+            phase["tasks"].append(task)
+
+        tx_by_project = {}
+        for row in tx_rows:
+            try:
+                tx = json.loads(row["data_json"])
+            except Exception:
+                logger.warning("Skipping invalid transaction JSON for id=%s", row["id"])
+                continue
+            tx.setdefault("id", row["id"])
+            tx_by_project.setdefault(row["project_id"], []).append(tx)
+
+        projects = []
+        for row in project_rows:
+            try:
+                project = json.loads(row["data_json"])
+            except Exception:
+                logger.warning("Skipping invalid project JSON for id=%s", row["id"])
+                continue
+            project.setdefault("id", row["id"])
+            project["phases"] = phases_by_project.get(row["id"], [])
+            project["transactions"] = tx_by_project.get(row["id"], [])
+            projects.append(project)
+
+        payload = {
+            "projects": projects,
+            "timestamp": self._safe_float(ts_row["value"] if ts_row else 0, 0)
+        }
+        if settings_row:
+            try:
+                payload["settings"] = json.loads(settings_row["data_json"])
+            except Exception:
+                logger.warning("Invalid settings JSON in DB, ignoring.")
+        return self._normalize_payload(payload)
+
+    def _write_relational_payload(self, payload):
+        normalized = self._normalize_payload(payload)
+        now_ts = time.time()
+        normalized["timestamp"] = now_ts
+
+        with self._connect() as conn:
+            conn.execute("BEGIN")
+            try:
+                conn.execute("DELETE FROM tasks")
+                conn.execute("DELETE FROM transactions")
+                conn.execute("DELETE FROM phases")
+                conn.execute("DELETE FROM projects")
+
+                for project_idx, raw_project in enumerate(normalized.get("projects", [])):
+                    if not isinstance(raw_project, dict):
+                        continue
+
+                    project = dict(raw_project)
+                    project_id = self._safe_id(project.get("id"), "project", project_idx)
+                    project["id"] = project_id
+
+                    project_phases = project.get("phases", [])
+                    if not isinstance(project_phases, list):
+                        project_phases = []
+
+                    project_transactions = project.get("transactions", [])
+                    if not isinstance(project_transactions, list):
+                        project_transactions = []
+
+                    project.pop("phases", None)
+                    project.pop("transactions", None)
+
+                    conn.execute(
+                        """
+                        INSERT INTO projects (id, order_idx, data_json, updated_at, deleted)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            project_id,
+                            project_idx,
+                            json.dumps(project, ensure_ascii=False),
+                            self._extract_updated_at(project),
+                            1 if project.get("deleted") else 0,
+                        ),
+                    )
+
+                    phase_ids = set()
+                    for phase_idx, raw_phase in enumerate(project_phases):
+                        if not isinstance(raw_phase, dict):
+                            continue
+
+                        phase = dict(raw_phase)
+                        phase_id = self._safe_id(phase.get("id"), f"phase_{project_id}", phase_idx)
+                        phase["id"] = phase_id
+                        phase_ids.add(phase_id)
+
+                        phase_tasks = phase.get("tasks", [])
+                        if not isinstance(phase_tasks, list):
+                            phase_tasks = []
+                        phase.pop("tasks", None)
+
+                        conn.execute(
+                            """
+                            INSERT INTO phases (id, project_id, order_idx, data_json, updated_at, deleted)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                phase_id,
+                                project_id,
+                                phase_idx,
+                                json.dumps(phase, ensure_ascii=False),
+                                self._extract_updated_at(phase),
+                                1 if phase.get("deleted") else 0,
+                            ),
+                        )
+
+                        for task_idx, raw_task in enumerate(phase_tasks):
+                            if not isinstance(raw_task, dict):
+                                continue
+
+                            task = dict(raw_task)
+                            task_id = self._safe_id(task.get("id"), f"task_{phase_id}", task_idx)
+                            task["id"] = task_id
+
+                            conn.execute(
+                                """
+                                INSERT INTO tasks (
+                                    id, project_id, phase_id, order_idx, data_json, updated_at, deleted, completed
+                                )
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    task_id,
+                                    project_id,
+                                    phase_id,
+                                    task_idx,
+                                    json.dumps(task, ensure_ascii=False),
+                                    self._extract_updated_at(task),
+                                    1 if task.get("deleted") else 0,
+                                    1 if task.get("completed") else 0,
+                                ),
+                            )
+
+                    for tx_idx, raw_tx in enumerate(project_transactions):
+                        if not isinstance(raw_tx, dict):
+                            continue
+
+                        tx = dict(raw_tx)
+                        tx_id = self._safe_id(tx.get("id"), f"tx_{project_id}", tx_idx)
+                        tx["id"] = tx_id
+
+                        tx_phase_ref = str(tx.get("phaseId", "") or "")
+                        tx_phase_fk = tx_phase_ref if tx_phase_ref in phase_ids else None
+
+                        conn.execute(
+                            """
+                            INSERT INTO transactions (
+                                id, project_id, phase_id, order_idx, data_json,
+                                updated_at, deleted, amount, category, tx_date
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                tx_id,
+                                project_id,
+                                tx_phase_fk,
+                                tx_idx,
+                                json.dumps(tx, ensure_ascii=False),
+                                self._extract_updated_at(tx),
+                                1 if tx.get("deleted") else 0,
+                                self._safe_float(tx.get("amount"), 0),
+                                tx.get("category"),
+                                tx.get("date"),
+                            ),
+                        )
+
+                if "settings" in normalized:
+                    settings_obj = normalized.get("settings")
+                    if not isinstance(settings_obj, dict):
+                        settings_obj = {}
+                    settings_updated_at = self._extract_updated_at(settings_obj) or now_ts
+                    conn.execute(
+                        """
+                        INSERT INTO settings (id, data_json, updated_at)
+                        VALUES (1, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                            data_json = excluded.data_json,
+                            updated_at = excluded.updated_at
+                        """,
+                        (json.dumps(settings_obj, ensure_ascii=False), settings_updated_at),
+                    )
+
+                conn.execute(
+                    """
+                    INSERT INTO meta (key, value)
+                    VALUES ('timestamp', ?)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                    """,
+                    (str(now_ts),),
+                )
+
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        return normalized
+
+    def _bootstrap_migrate(self):
+        with self.lock:
+            candidates = []
+
+            try:
+                relational_payload = self._read_relational_payload()
+                if relational_payload:
+                    candidates.append(("relational", relational_payload))
+            except Exception as e:
+                logger.warning("Relational read failed during bootstrap: %s", e)
+
+            try:
+                legacy_payload = self._read_legacy_snapshot()
+                if legacy_payload:
+                    candidates.append(("legacy_db", legacy_payload))
+            except Exception as e:
+                logger.warning("Legacy DB snapshot read failed during bootstrap: %s", e)
+
+            if candidates:
+                source, chosen = max(candidates, key=lambda item: self._extract_timestamp(item[1]))
+                logger.info("Storage bootstrap source selected: %s", source)
+            else:
+                chosen = {"projects": [], "timestamp": 0}
+                logger.info("Storage bootstrap source selected: empty")
+
+            self._write_relational_payload(chosen)
+
+    def read(self):
+        with self.lock:
+            payload = self._read_relational_payload()
+            if payload:
+                return payload
+            return {"projects": [], "timestamp": 0}
+
+    def write(self, payload):
+        result = {
+            "db_written": False,
+            "timestamp": time.time()
+        }
+
+        with self.lock:
+            db_error = None
+
+            try:
+                persisted = self._write_relational_payload(payload)
+                result["db_written"] = True
+                result["timestamp"] = persisted["timestamp"]
+            except Exception as e:
+                db_error = str(e)
+                logger.error("DB write failed: %s", e)
+
+            result["success"] = result["db_written"]
+            if db_error:
+                result["db_error"] = db_error
+
+        return result
+
+
+STORE = DataStore(DB_FILE)
 
 # --- UTILS ---
 def get_ip():
@@ -62,15 +521,11 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
 
         # 2. API: Ziskanie dat
         if path == '/api/data':
-            if os.path.exists(DATA_FILE):
-                try:
-                    with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                    self.send_json(data)
-                except Exception as e:
-                    self.send_json({ "error": f"Error reading data: {str(e)}", "projects": [], "timestamp": 0 })
-            else:
-                self.send_json({ "projects": [], "timestamp": 0 })
+            try:
+                data = STORE.read()
+                self.send_json(data)
+            except Exception as e:
+                self.send_json({ "error": f"Error reading data: {str(e)}", "projects": [], "timestamp": 0 })
             return
         
         # 3. Presmerovania
@@ -101,16 +556,8 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
                 post_data = self.rfile.read(content_length)
                 
                 data = json.loads(post_data)
-                # Pridame server timestamp ak chyba alebo je starsi
-                data['timestamp'] = time.time()
-                
-                if not os.path.exists('shared'):
-                    os.makedirs('shared')
-                
-                with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-                
-                self.send_json({ "success": True, "timestamp": data['timestamp'] })
+                result = STORE.write(data)
+                self.send_json(result)
             except Exception as e:
                 self.send_json({ "error": str(e), "success": False })
             return

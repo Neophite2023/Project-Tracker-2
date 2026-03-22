@@ -556,13 +556,7 @@ const App = {
         if (!confirm('Odstranit tento vydavok?')) return;
 
         Projects.deleteTransaction(projectId, transactionId);
-
-        const current = Projects.get(projectId);
-        if (current) {
-            this.showProjectDetail(projectId);
-        } else {
-            this.refresh();
-        }
+        this.refresh();
     },
 
     // --- ACTIONS ---

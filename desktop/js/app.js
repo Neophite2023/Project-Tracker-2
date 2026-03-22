@@ -707,7 +707,14 @@ const App = {
 
     showTransactionForm(projectId) {
         const project = Projects.get(projectId);
-        const phasesOptions = project.phases.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        const activePhases = (project?.phases || []).filter(p => p && !p.deleted);
+        const seenPhaseIds = new Set();
+        const uniqueActivePhases = activePhases.filter((phase) => {
+            if (!phase.id || seenPhaseIds.has(phase.id)) return false;
+            seenPhaseIds.add(phase.id);
+            return true;
+        });
+        const phasesOptions = uniqueActivePhases.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
         
         this.showModal('Pridať výdavok', `
             <div style="display: flex; flex-direction: column; gap: 1.25rem;">
@@ -730,8 +737,8 @@ const App = {
                 </div>
                 <div class="form-group">
                     <label>Fáza</label>
-                    <select id="t_phase" class="form-control">
-                        <option value="">-- Vyber fázu --</option>
+                    <select id="t_phase" class="form-control" ${uniqueActivePhases.length ? '' : 'disabled'}>
+                        <option value="">${uniqueActivePhases.length ? '-- Vyber fázu --' : '-- Projekt nemá aktívne fázy --'}</option>
                         ${phasesOptions}
                     </select>
                 </div>
