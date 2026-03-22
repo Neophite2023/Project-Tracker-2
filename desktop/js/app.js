@@ -507,7 +507,7 @@ const App = {
             <div id="task-${t.id}" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
                 <input type="checkbox" ${t.completed ? 'checked' : ''} onchange="App.toggleTask('${projectId}', '${phase.id}', '${t.id}')">
                 <span id="task-text-${t.id}" style="flex: 1; font-size: 0.875rem; ${t.completed ? 'text-decoration: line-through; color: var(--text-muted);' : ''}">${t.text}</span>
-                <button onclick="App.deleteTask('${projectId}', '${phase.id}', '${t.id}')" style="background:none; border:none; color:#d1d5db; cursor:pointer;"><i class="fas fa-times"></i></button>
+                <button onclick="App.deleteTask('${projectId}', '${phase.id}', '${t.id}')" style="background:none; border:none; color:#ef4444; cursor:pointer;"><i class="fas fa-times"></i></button>
             </div>
         `).join('');
 

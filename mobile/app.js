@@ -322,7 +322,7 @@ const App = {
                                     <input type="checkbox" ${t.completed ? 'checked' : ''} onchange="App.toggleTask('${project.id}', '${ph.id}', '${t.id}')">
                                     <span style="flex: 1; ${t.completed ? 'text-decoration: line-through; color: var(--text-muted);' : ''}">${t.text}</span>
                                 </label>
-                                <button onclick="App.deleteTask('${project.id}', '${ph.id}', '${t.id}')" style="background: none; border: none; color: #d1d5db; cursor: pointer; padding: 0.5rem; font-size: 1rem;">
+                                <button onclick="App.deleteTask('${project.id}', '${ph.id}', '${t.id}')" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 0.5rem; font-size: 1rem;">
                                     <i class="fas fa-times"></i>
                                 </button>
                             </div>
