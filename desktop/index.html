@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProjectTracker Desktop</title>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                for(let registration of registrations) { registration.unregister(); }
+            });
+        }
+    </script>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-layout">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1><i class="fas fa-chart-line"></i> ProjectTracker</h1>
+            </div>
+            <nav class="sidebar-nav">
+                <button class="nav-item active" data-page="dashboard"><i class="fas fa-th-large"></i> Dashboard</button>
+                <button class="nav-item" data-page="projects"><i class="fas fa-tasks"></i> Projekty</button>
+                <button class="nav-item" onclick="App.showMobileAccess()"><i class="fas fa-mobile-alt"></i> Mobilný prístup</button>
+            </nav>
+            <div class="sidebar-footer">
+                <button id="quickAddBtn" class="btn btn-primary" style="margin-bottom: 0.5rem;"><i class="fas fa-plus"></i> Nový projekt</button>
+                <button onclick="App.exitApp()" class="btn btn-secondary" style="color: #ef4444; border-color: #fecaca;"><i class="fas fa-power-off"></i> Ukončiť</button>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="top-bar">
+                <h2 id="pageTitle">Dashboard</h2>
+                <div class="top-bar-actions" style="display: flex; align-items: center; gap: 1rem;">
+                    <div id="serverStatus" style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; background: #ecfdf5; color: #047857; padding: 0.25rem 0.75rem; border-radius: 1rem;">
+                        <span style="display: inline-block; width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></span>
+                        Server beží
+                    </div>
+                </div>
+            </header>
+            <div id="contentArea" class="content-area"></div>
+        </main>
+    </div>
+
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">Modal</h3>
+                <span class="close-modal">&times;</span>
+            </div>
+            <div id="modalBody"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+    <script src="./../shared/store.js?v=6"></script>
+    <script src="./../shared/projects.js?v=6"></script>
+    <script src="./js/app.js?v=6"></script>
+    </body>
+</html>

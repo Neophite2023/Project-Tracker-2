@@ -1,0 +1,7 @@
+
+*.jpeg
+*.jpg
+*.log
+data.json
+shared/data.json
+nul
