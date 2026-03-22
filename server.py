@@ -6,6 +6,7 @@ import os
 import threading
 import time
 import logging
+import errno
 
 PORT = 8005
 DATA_FILE = 'shared/data.json'
@@ -155,13 +156,46 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
 
 # --- SERVER ---
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
-    pass
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+def create_server_with_retry(host, port, handler_cls, max_attempts=20, delay_seconds=0.5):
+    last_error = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return ThreadedTCPServer((host, port), handler_cls)
+        except OSError as exc:
+            last_error = exc
+            err_no = getattr(exc, "errno", None)
+
+            # Windows bind error for "address already in use" is commonly 10048.
+            if err_no in (errno.EADDRINUSE, 10048):
+                logger.warning(
+                    "Port %s je obsadeny (pokus %s/%s), opakujem o %.1f s...",
+                    port,
+                    attempt,
+                    max_attempts,
+                    delay_seconds,
+                )
+                time.sleep(delay_seconds)
+                continue
+
+            raise
+
+    raise last_error
 
 if __name__ == "__main__":
     # Uistime sa ze mame pracovny adresar
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    
-    server = ThreadedTCPServer(("0.0.0.0", PORT), AppHandler)
+
+    try:
+        server = create_server_with_retry("0.0.0.0", PORT, AppHandler)
+    except OSError as exc:
+        logger.error("Server sa nepodarilo spustit na porte %s: %s", PORT, exc)
+        raise SystemExit(1)
+
     print("=" * 50)
     print("  ProjectTracker Server")
     print("=" * 50)

@@ -67,12 +67,12 @@ const Store = {
             // NEUTIEKAJ syncError tu - nec kontrolluje sa online status cez listeners
         });
         
-        // Pravidelny polling (kazdych 10 sekund) - VŽDY sa musí nastaviť
+        // Pravidelny polling (kazdych 2 sekundy) - VŽDY sa musí nastaviť
         this.syncInterval = setInterval(() => {
             if (navigator.onLine && !this.isSyncing) {
                 this.fetchData();
             }
-        }, 10000);
+        }, 2000);
         
         // Prve stiahnutie - vratime promise ak je online
         if (navigator.onLine) {
@@ -212,12 +212,13 @@ const Store = {
                             // 1. Väčšina vyhráva (ak sú obe verzie zhodné v completed, je to remíza)
                             // 2. Pri remíze použijeme ID hash pre konzistentné rozdelenie
                             if (t.completed !== exTask.completed) {
-                                // Zoberieme verziu s false (nefajknutú) - bezpečnejšia voľba
-                                // Alebo môžeme zobrať novšiu hodnotu podľa toho, kto je "väčší"
-                                taskMap.set(t.id, t.id > exTask.id ? t : exTask);
+                                // Pri konflikte completed stavu preferujeme "false" (bezpecnejsie).
+                                taskMap.set(t.id, t.completed === false ? t : exTask);
+                            } else if (!!t.deleted !== !!exTask.deleted) {
+                                // Pri konflikte deleted flagu preferujeme nezmazanu verziu.
+                                taskMap.set(t.id, t.deleted ? exTask : t);
                             } else {
-                                // Úplná zhoda - konzistentné rozdelenie podľa ID
-                                taskMap.set(t.id, t.id > exTask.id ? t : exTask);
+                                taskMap.set(t.id, exTask);
                             }
                         }
                         // Ak tTime < exTime, ponecháme exTask (staršia verzia)

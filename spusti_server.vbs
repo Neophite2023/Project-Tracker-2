@@ -10,12 +10,25 @@ apiUrl = "http://127.0.0.1:8005/api/info"
 If Not IsServerRunning(apiUrl) Then
     stalePid = GetListeningPid("8005")
     If stalePid <> "" Then
-        WshShell.Run "cmd /c taskkill /F /PID " & stalePid, 0, True
+        killCode = WshShell.Run("cmd /c taskkill /F /PID " & stalePid, 0, True)
+        If killCode <> 0 Then
+            MsgBox "Nepodarilo sa ukoncit povodny proces servera (PID " & stalePid & ").", vbCritical, "ProjectTracker"
+            WScript.Quit 1
+        End If
         WScript.Sleep 500
     End If
 
     WshShell.Run "cmd /c cd /d """ & currentDir & """ && python server.py", 1, False
 End If
+
+' Pockaj max 20 sekund, kym server zacne odpovedat.
+If Not WaitForServer(apiUrl, 40, 500) Then
+    MsgBox "Server sa nepodarilo spustit do 20 sekund." & vbCrLf & _
+           "Skontrolujte prosim okno servera.", vbCritical, "ProjectTracker"
+    WScript.Quit 1
+End If
+
+WScript.Quit 0
 
 Function IsServerRunning(checkUrl)
     On Error Resume Next
@@ -29,6 +42,19 @@ Function IsServerRunning(checkUrl)
 
     Set http = Nothing
     On Error GoTo 0
+End Function
+
+Function WaitForServer(checkUrl, attempts, sleepMs)
+    Dim i
+    WaitForServer = False
+
+    For i = 1 To attempts
+        If IsServerRunning(checkUrl) Then
+            WaitForServer = True
+            Exit Function
+        End If
+        WScript.Sleep sleepMs
+    Next
 End Function
 
 Function GetListeningPid(port)

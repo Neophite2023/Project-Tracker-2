@@ -542,7 +542,7 @@ const App = {
                     <div id="tasks-${phase.id}">${taskHtml}</div>
                     <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
                         <input type="text" id="nt-${phase.id}" placeholder="Nová úloha..." class="form-control btn-sm" style="flex: 1; padding: 0.4rem 0.75rem;">
-                        <button onclick="App.addTask('${projectId}', '${phase.id}')" class="btn btn-secondary btn-sm"><i class="fas fa-plus"></i></button>
+                        <button onclick="App.addTask('${projectId}', '${phase.id}')" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i></button>
                     </div>
                 </div>
 

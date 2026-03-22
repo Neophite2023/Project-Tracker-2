@@ -7,18 +7,23 @@ const Projects = {
         return Store.getProjects().find(p => p.id === id);
     },
 
+    _nextUpdatedAt(current = 0) {
+        const currentTs = Number(current) || 0;
+        return Math.max(Date.now(), currentTs + 1);
+    },
+
     save(project, skipUpdatedAt = false) {
         const projects = Store.getProjects();
         const index = projects.findIndex(p => p.id === project.id);
         
         if (!skipUpdatedAt) {
-            project.updatedAt = Date.now();
+            project.updatedAt = this._nextUpdatedAt(project.updatedAt);
         }
         
         if (index !== -1) projects[index] = project;
         else {
             project.createdAt = project.createdAt || new Date().toISOString();
-            project.updatedAt = project.updatedAt || Date.now();
+            project.updatedAt = project.updatedAt || this._nextUpdatedAt();
             projects.push(project);
         }
         
@@ -29,7 +34,7 @@ const Projects = {
         const project = this.get(id);
         if (project) {
             project.deleted = true;
-            project.updatedAt = Date.now();
+            project.updatedAt = this._nextUpdatedAt(project.updatedAt);
             this.save(project);
         }
     },
@@ -48,11 +53,11 @@ const Projects = {
             notes: '',
             expectedExtra: 0,
             createdAt: new Date().toISOString(),
-            updatedAt: Date.now()
+            updatedAt: this._nextUpdatedAt()
         };
         
         project.phases.push(phase);
-        project.updatedAt = Date.now();
+        project.updatedAt = this._nextUpdatedAt(project.updatedAt);
         this.save(project);
         return phase;
     },
@@ -64,7 +69,7 @@ const Projects = {
         const phase = project.phases.find(p => p.id === phaseId);
         if (phase) {
             Object.assign(phase, data);
-            phase.updatedAt = Date.now();
+            phase.updatedAt = this._nextUpdatedAt(phase.updatedAt);
             
             // Ak sa zmenili úlohy, prepočítame progres automaticky
             if (phase.tasks && phase.tasks.length > 0) {
@@ -77,7 +82,7 @@ const Projects = {
                 }
             }
             
-            project.updatedAt = Date.now();
+            project.updatedAt = this._nextUpdatedAt(project.updatedAt);
             this.save(project);
         }
     },
@@ -95,11 +100,11 @@ const Projects = {
             text,
             completed: false,
             createdAt: new Date().toISOString(),
-            updatedAt: Date.now()
+            updatedAt: this._nextUpdatedAt()
         });
         
-        phase.updatedAt = Date.now();
-        project.updatedAt = Date.now();
+        phase.updatedAt = this._nextUpdatedAt(phase.updatedAt);
+        project.updatedAt = this._nextUpdatedAt(project.updatedAt);
         this.save(project);
     },
 
@@ -112,9 +117,9 @@ const Projects = {
         const task = phase.tasks.find(t => t.id === taskId);
         if (task) {
             task.completed = !task.completed;
-            task.updatedAt = Date.now();
-            phase.updatedAt = Date.now();
-            project.updatedAt = Date.now();
+            task.updatedAt = this._nextUpdatedAt(task.updatedAt);
+            phase.updatedAt = this._nextUpdatedAt(phase.updatedAt);
+            project.updatedAt = this._nextUpdatedAt(project.updatedAt);
             this.save(project);
         }
     },
@@ -128,8 +133,8 @@ const Projects = {
         const task = phase.tasks.find(t => t.id === taskId);
         if (task) {
             task.deleted = true;
-            task.updatedAt = Date.now();
-            phase.updatedAt = Date.now();
+            task.updatedAt = this._nextUpdatedAt(task.updatedAt);
+            phase.updatedAt = this._nextUpdatedAt(phase.updatedAt);
             
             // Prepočítame progres fázy keď sa zmaže úloha
             if (phase.tasks && phase.tasks.length > 0) {
@@ -142,7 +147,7 @@ const Projects = {
                 }
             }
             
-            project.updatedAt = Date.now();
+            project.updatedAt = this._nextUpdatedAt(project.updatedAt);
             this.save(project);
         }
     },
@@ -154,8 +159,8 @@ const Projects = {
         const phase = project.phases.find(p => p.id === phaseId);
         if (phase) {
             phase.deleted = true;
-            phase.updatedAt = Date.now();
-            project.updatedAt = Date.now();
+            phase.updatedAt = this._nextUpdatedAt(phase.updatedAt);
+            project.updatedAt = this._nextUpdatedAt(project.updatedAt);
             this.save(project);
         }
     },
@@ -173,11 +178,11 @@ const Projects = {
             category,
             date: new Date().toISOString(),
             createdAt: new Date().toISOString(),
-            updatedAt: Date.now()
+            updatedAt: this._nextUpdatedAt()
         };
         
         project.transactions.push(transaction);
-        project.updatedAt = Date.now();
+        project.updatedAt = this._nextUpdatedAt(project.updatedAt);
         this.save(project);
         return transaction;
     },
@@ -189,8 +194,8 @@ const Projects = {
         const transaction = project.transactions.find(t => t.id === transactionId);
         if (transaction) {
             transaction.deleted = true;
-            transaction.updatedAt = Date.now();
-            project.updatedAt = Date.now();
+            transaction.updatedAt = this._nextUpdatedAt(transaction.updatedAt);
+            project.updatedAt = this._nextUpdatedAt(project.updatedAt);
             this.save(project);
         }
     },
@@ -279,7 +284,7 @@ const Projects = {
             phases: [],
             transactions: [],
             createdAt: now.toISOString(),
-            updatedAt: Date.now()
+            updatedAt: this._nextUpdatedAt()
         };
     }
 };
