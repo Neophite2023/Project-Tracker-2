@@ -298,10 +298,15 @@ const App = {
                     </div>
                     <div class="m-tasks">
                         ${(ph.tasks || []).map(t => `
-                            <label class="m-task">
-                                <input type="checkbox" ${t.completed ? 'checked' : ''} onchange="App.toggleTask('${project.id}', '${ph.id}', '${t.id}')">
-                                <span style="${t.completed ? 'text-decoration: line-through; color: var(--text-muted);' : ''}">${t.text}</span>
-                            </label>
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                <label class="m-task" style="margin-bottom: 0; flex: 1; display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" ${t.completed ? 'checked' : ''} onchange="App.toggleTask('${project.id}', '${ph.id}', '${t.id}')">
+                                    <span style="flex: 1; ${t.completed ? 'text-decoration: line-through; color: var(--text-muted);' : ''}">${t.text}</span>
+                                </label>
+                                <button onclick="App.deleteTask('${project.id}', '${ph.id}', '${t.id}')" style="background: none; border: none; color: #d1d5db; cursor: pointer; padding: 0.5rem; font-size: 1rem;">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
                         `).join('')}
                     </div>
                     <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
@@ -339,6 +344,38 @@ const App = {
                         <input type="checkbox" ${t.completed ? 'checked' : ''} onchange="App.toggleTask('${projectId}', '${phaseId}', '${t.id}')">
                         <span style="${t.completed ? 'text-decoration: line-through; color: var(--text-muted);' : ''}">${t.text}</span>
                     </label>
+                `).join('');
+                
+                // Nájdi prvok s úlohami a aktualizuj
+                const tasksContainer = document.querySelector(`[data-phase-id="${phaseId}"] .m-tasks`);
+                if (tasksContainer) {
+                    tasksContainer.innerHTML = tasksHtml;
+                }
+            }
+        }
+    },
+
+    deleteTask(projectId, phaseId, taskId) {
+        Projects.deleteTask(projectId, phaseId, taskId);
+        
+        // Aktualizuj obsah bez zavretia/otvárania okna
+        const project = Projects.get(projectId);
+        if (project) {
+            const stats = Projects.calculateStats(project);
+            const phaseStats = stats.phaseStats;
+            const ph = phaseStats.find(p => p.id === phaseId);
+            
+            if (ph) {
+                const tasksHtml = (ph.tasks || []).map(t => `
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <label class="m-task" style="margin-bottom: 0; flex: 1; display: flex; align-items: center; gap: 0.5rem;">
+                            <input type="checkbox" ${t.completed ? 'checked' : ''} onchange="App.toggleTask('${projectId}', '${phaseId}', '${t.id}')">
+                            <span style="flex: 1; ${t.completed ? 'text-decoration: line-through; color: var(--text-muted);' : ''}">${t.text}</span>
+                        </label>
+                        <button onclick="App.deleteTask('${projectId}', '${phaseId}', '${t.id}')" style="background: none; border: none; color: #d1d5db; cursor: pointer; padding: 0.5rem; font-size: 1rem;">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
                 `).join('');
                 
                 // Nájdi prvok s úlohami a aktualizuj
