@@ -1,0 +1,278 @@
+const Store = {
+    KEYS: {
+        PROJECTS: 'projecttracker_projects',
+        SETTINGS: 'projecttracker_settings'
+    },
+    
+    serverUrl: '/api/data',
+    syncInterval: null,
+    lastServerTimestamp: 0,
+    isSyncing: false,
+    pendingSync: false,
+
+    generateId() {
+        return Date.now().toString(36) + Math.random().toString(36).substr(2);
+    },
+
+    getProjects() {
+        const data = localStorage.getItem(this.KEYS.PROJECTS);
+        return data ? JSON.parse(data) : [];
+    },
+
+    saveProjects(projects) {
+        const newData = JSON.stringify(projects);
+        const currentData = localStorage.getItem(this.KEYS.PROJECTS);
+        
+        if (currentData === newData) return;
+        
+        localStorage.setItem(this.KEYS.PROJECTS, newData);
+        
+        if (navigator.onLine) {
+            this.pushData();
+        }
+    },
+
+    getSettings() {
+        const data = localStorage.getItem(this.KEYS.SETTINGS);
+        return data ? JSON.parse(data) : { currency: '€', theme: 'light' };
+    },
+
+    // --- SERVER SYNC ---
+
+    initSync() {
+        if (this.syncInterval) clearInterval(this.syncInterval);
+        
+        // Online/offline handling
+        window.addEventListener('online', () => {
+            console.log("Back online, triggering sync...");
+            this.triggerSync();
+        });
+        
+        window.addEventListener('offline', () => {
+            console.log("Gone offline, data will sync when back online");
+            window.dispatchEvent(new CustomEvent('syncError'));
+        });
+        
+        // Prve stiahnutie
+        if (navigator.onLine) {
+            this.fetchData();
+        }
+
+        // Pravidelny polling (kazdych 10 sekund)
+        this.syncInterval = setInterval(() => {
+            if (navigator.onLine && !this.isSyncing) {
+                this.fetchData();
+            }
+        }, 10000);
+    },
+    
+    triggerSync() {
+        if (!navigator.onLine) {
+            console.log("Offline, sync queued");
+            this.pendingSync = true;
+            return;
+        }
+        this.fetchData();
+    },
+
+    async fetchData() {
+        if (this.isSyncing) return;
+        
+        this.isSyncing = true;
+        window.dispatchEvent(new CustomEvent('syncStart'));
+        
+        try {
+            const response = await fetch(this.serverUrl);
+            if (!response.ok) throw new Error("Server error");
+            
+            const serverData = await response.json();
+            console.log("Fetch success, server timestamp:", serverData.timestamp);
+            
+            const localProjects = this.getProjects();
+            const serverProjects = serverData.projects || [];
+            
+            // Item-level merge
+            const { merged: mergedProjects, changedProjectIds } = this.mergeProjectsWithDiff(localProjects, serverProjects);
+            
+            // Uložíme zmiešané dáta iba ak sa niečo zmenilo
+            const newData = JSON.stringify(mergedProjects);
+            const currentData = localStorage.getItem(this.KEYS.PROJECTS);
+            
+            if (currentData !== newData) {
+                localStorage.setItem(this.KEYS.PROJECTS, newData);
+                
+                // Emituje konkrétne eventy pre zmenené projekty
+                if (changedProjectIds.length > 0) {
+                    changedProjectIds.forEach(projectId => {
+                        window.dispatchEvent(new CustomEvent('projectDataChanged', { 
+                            detail: { projectId } 
+                        }));
+                    });
+                }
+                
+                window.dispatchEvent(new CustomEvent('projectsListChanged'));
+            }
+            
+            // Aktualizujeme settings ak sú novšie
+            if (serverData.settings) {
+                const localSettingsTs = this.getSettings()._updatedAt || 0;
+                const serverSettingsTs = serverData.settings._updatedAt || 0;
+                if (serverSettingsTs > localSettingsTs) {
+                    localStorage.setItem(this.KEYS.SETTINGS, JSON.stringify(serverData.settings));
+                }
+            }
+            
+            // Pošleme naše dáta naspäť na server
+            await this.pushData();
+            
+            window.dispatchEvent(new CustomEvent('syncSuccess'));
+
+        } catch (e) {
+            console.warn("Sync failed:", e);
+            window.dispatchEvent(new CustomEvent('syncError'));
+        } finally {
+            this.isSyncing = false;
+        }
+    },
+    
+    mergeProjectsWithDiff(localProjects, serverProjects) {
+        const merged = [];
+        const changedProjectIds = [];
+        
+        const localMap = new Map(localProjects.map(p => [p.id, p]));
+        const serverMap = new Map(serverProjects.map(p => [p.id, p]));
+        
+        const allIds = new Set([...localMap.keys(), ...serverMap.keys()]);
+        
+        allIds.forEach(id => {
+            const local = localMap.get(id);
+            const server = serverMap.get(id);
+            
+            if (!local) {
+                // Nový projekt zo servera
+                merged.push({ ...server, _localVersion: false });
+                changedProjectIds.push(id);
+                return;
+            }
+            if (!server) {
+                // Projekt len lokálne (napr. vytvorený v teréne)
+                merged.push({ ...local, _localVersion: true });
+                return;
+            }
+
+            // --- DEEP MERGE EXISTUJÚCEHO PROJEKTU ---
+            const localTs = local.updatedAt || 0;
+            const serverTs = server.updatedAt || 0;
+            
+            // Základné atribúty (názov, rozpočet) z novšej verzie
+            let finalProject = serverTs > localTs ? { ...server } : { ...local };
+            
+            // 1. Zlúčenie fáz (Phases) - každá fáza má vlastné ID
+            const phaseMap = new Map();
+            const allPhases = [...(local.phases || []), ...(server.phases || [])];
+            allPhases.forEach(ph => {
+                const existing = phaseMap.get(ph.id);
+                if (!existing) {
+                    phaseMap.set(ph.id, { ...ph });
+                } else {
+                    // Ak fáza existuje na oboch, zlúčime jej atribúty a HLAVNE úlohy
+                    const newerPhase = (ph.updatedAt || 0) > (existing.updatedAt || 0) ? ph : existing;
+                    const mergedPhase = { ...newerPhase };
+                    
+                    // Zlúčenie úloh v rámci fázy
+                    const taskMap = new Map();
+                    const allTasks = [...(existing.tasks || []), ...(ph.tasks || [])];
+                    allTasks.forEach(t => {
+                        const exTask = taskMap.get(t.id);
+                        if (!exTask || (t.updatedAt || 0) > (exTask.updatedAt || 0)) {
+                            taskMap.set(t.id, t);
+                        }
+                    });
+                    mergedPhase.tasks = Array.from(taskMap.values());
+                    
+                    // Prepočítame progress ak sú tam úlohy
+                    if (mergedPhase.tasks.length > 0) {
+                        const completed = mergedPhase.tasks.filter(t => t.completed).length;
+                        mergedPhase.progress = Math.round((completed / mergedPhase.tasks.length) * 100);
+                    }
+
+                    phaseMap.set(ph.id, mergedPhase);
+                }
+            });
+            finalProject.phases = Array.from(phaseMap.values());
+
+            // 2. Zlúčenie transakcií (Transactions) - Unikátne ID, spájame všetko
+            const transMap = new Map();
+            const allTrans = [...(local.transactions || []), ...(server.transactions || [])];
+            allTrans.forEach(t => {
+                const existing = transMap.get(t.id);
+                // Ak existuje na oboch, ponecháme tú novšiu (pre prípad budúcich editácií)
+                if (!existing || (t.updatedAt || 0) > (existing.updatedAt || 0)) {
+                    transMap.set(t.id, t);
+                }
+            });
+            finalProject.transactions = Array.from(transMap.values());
+
+            // 3. Rekalculácia updatedAt pre projekt
+            // Projekt má časovú pečiatku najnovšej zmeny spomedzi všetkých jeho častí
+            finalProject.updatedAt = Math.max(localTs, serverTs);
+            
+            // Označíme ako zmenený, ak sa výsledný projekt líši od nášho lokálneho
+            // (Použijeme JSON stringify pre hlboké porovnanie)
+            if (JSON.stringify(finalProject) !== JSON.stringify(local)) {
+                changedProjectIds.push(id);
+            }
+            
+            merged.push(finalProject);
+        });
+        
+        return { merged, changedProjectIds };
+    },
+
+    async pushData() {
+        const projects = this.getProjects();
+        const settings = this.getSettings();
+        settings._updatedAt = Date.now();
+        
+        const payload = {
+            projects,
+            settings,
+            timestamp: Date.now()
+        };
+
+        try {
+            const response = await fetch('/api/data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                if (result.timestamp) {
+                    this.lastServerTimestamp = result.timestamp;
+                }
+                console.log("Data pushed to server successfully.");
+            }
+        } catch (e) {
+            console.error("Push failed:", e);
+        }
+    },
+
+    shutdownServer() {
+        // Poziadame server o vypnutie a potom zavrieme okno
+        fetch('/api/shutdown', { method: 'POST' })
+            .then(() => {
+                alert("Server sa vypína. Aplikáciu môžete zatvoriť.");
+                window.close();
+            })
+            .catch(e => {
+                alert("Chyba pri vypínaní servera.");
+                window.close();
+            });
+    }
+};
+
+// Export pre Node.js aj Browser
+if (typeof module !== 'undefined') module.exports = Store;
+else window.Store = Store;
