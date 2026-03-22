@@ -1,9 +1,9 @@
-const CACHE_NAME = 'tracker-v7';
+const CACHE_NAME = 'tracker-v8';
 const urlsToCache = [
   './',
   './index.html',
   './styles.css',
-  './app.js?v=7',
+  './app.js?v=8',
   './icon.svg',
   './../shared/store.js?v=7',
   './../shared/projects.js?v=7',

@@ -799,6 +799,11 @@ const App = {
         
         Projects.addTransaction(projectId, phaseId, amount, desc, category);
         this.hideModal();
+
+        // Okamzity refresh detailu po lokalnej zmene (bez manualneho reloadu stranky)
+        if (this.currentPage === 'project-detail' && this.currentProjectId === projectId) {
+            this.refreshProjectDetail();
+        }
     },
 
     updatePhase(projectId, phaseId) {
@@ -826,6 +831,11 @@ const App = {
     deleteTransaction(projectId, transactionId) {
         if(confirm('Odstrániť tento výdavok?')) {
             Projects.deleteTransaction(projectId, transactionId);
+
+            // Okamzity refresh detailu po lokalnej zmene (bez manualneho reloadu stranky)
+            if (this.currentPage === 'project-detail' && this.currentProjectId === projectId) {
+                this.refreshProjectDetail();
+            }
         }
     },
 

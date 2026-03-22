@@ -1,6 +1,8 @@
 const App = {
     currentPage: 'dashboard',
     currentProjectId: null,
+    pendingExpenseProjectId: null,
+    pendingExpensePhaseId: null,
 
     init() {
         // Počká na prvú synchronizáciu pred renderovaním
@@ -40,7 +42,7 @@ const App = {
             }
             
             // Neobnovuj detail ak je sheet otvorený (idú lokálne aktualizácie)
-            if (this.currentProjectId === e.detail.projectId && this.currentPage === 'dashboard' && !isSheetOpen) {
+            if (this.currentProjectId === e.detail.projectId && this.currentPage === 'dashboard' && isSheetOpen) {
                 this.showProjectDetail(e.detail.projectId);
             }
         });
@@ -72,6 +74,7 @@ const App = {
                 ${stats.totalSpent.toLocaleString()} € <span style="font-weight: 400; color: var(--text-muted);">z ${stats.totalBudget.toLocaleString()} €</span>
             </div>
         `;
+
     },
 
     setupSheetGestures() {
@@ -337,6 +340,71 @@ const App = {
 
         document.getElementById('sheetContent').innerHTML = content;
         this.showSheet();
+        this.renderTransactionsInSheet(project);
+    },
+
+    renderTransactionsInSheet(project) {
+        const host = document.getElementById('sheetContent');
+        if (!host) return;
+
+        const oldSection = document.getElementById('mobile-transactions-section');
+        if (oldSection) oldSection.remove();
+
+        const activeTransactions = (project.transactions || [])
+            .filter(t => !t.deleted)
+            .slice()
+            .sort((a, b) => (new Date(b.date || b.createdAt || 0)) - (new Date(a.date || a.createdAt || 0)));
+
+        const rows = activeTransactions.length
+            ? activeTransactions.map(t => this.createTransactionRow(project, t)).join('')
+            : '<p style="color: var(--text-muted); font-size: 0.85rem;">Zatial ziadne vydavky.</p>';
+
+        host.insertAdjacentHTML('beforeend', `
+            <div id="mobile-transactions-section">
+                <h4 style="margin: 1.5rem 0 1rem; font-weight: 800;">Vydavky</h4>
+                <div class="m-phase" style="padding: 0.85rem;">
+                    <button class="m-btn" onclick="App.openAddExpense('${project.id}')" style="margin: 0 0 0.75rem 0;">
+                        <i class="fas fa-plus-circle"></i> Pridat vydavok
+                    </button>
+                    <div>${rows}</div>
+                </div>
+            </div>
+        `);
+    },
+
+    createTransactionRow(project, transaction) {
+        const phase = (project.phases || []).find(p => p.id === transaction.phaseId && !p.deleted);
+        const phaseName = phase ? phase.name : 'Nezadana faza';
+        const categoryIcon = {
+            material: 'fa-cubes',
+            labor: 'fa-hammer',
+            transport: 'fa-truck',
+            other: 'fa-box-open'
+        }[transaction.category || 'other'] || 'fa-receipt';
+        const txDate = transaction.date || transaction.createdAt || new Date().toISOString();
+
+        return `
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.6rem 0; border-bottom: 1px solid #eef2f7;">
+                <div style="display: flex; align-items: center; gap: 0.6rem; min-width: 0;">
+                    <i class="fas ${categoryIcon}" style="color: var(--primary); width: 1rem;"></i>
+                    <div style="min-width: 0;">
+                        <div style="font-size: 0.88rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                            ${transaction.description || 'Vydavok'}
+                        </div>
+                        <div style="font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                            ${phaseName} | ${new Date(txDate).toLocaleDateString()}
+                        </div>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
+                    <span style="font-size: 0.85rem; font-weight: 800;">${Number(transaction.amount || 0).toLocaleString()} EUR</span>
+                    <button onclick="App.deleteTransaction('${project.id}', '${transaction.id}')" style="background: none; border: none; color: #ef4444; padding: 0.35rem; cursor: pointer;">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+
     },
 
     addTask(projectId, phaseId) {
@@ -426,13 +494,38 @@ const App = {
                 </button>
             </div>
         `;
+
+        if (this.pendingExpenseProjectId) {
+            const projectSelect = document.getElementById('m_project');
+            if (projectSelect) {
+                projectSelect.value = this.pendingExpenseProjectId;
+                this.updatePhaseSelect(this.pendingExpenseProjectId);
+            }
+
+            if (this.pendingExpensePhaseId) {
+                const phaseSelect = document.getElementById('m_phase');
+                if (phaseSelect && Array.from(phaseSelect.options).some(o => o.value === this.pendingExpensePhaseId)) {
+                    phaseSelect.value = this.pendingExpensePhaseId;
+                }
+            }
+        }
     },
 
     updatePhaseSelect(projectId) {
         const project = Projects.get(projectId);
         const select = document.getElementById('m_phase');
-        if (!project) return select.innerHTML = '<option value="">-- Vyber projekt --</option>';
-        select.innerHTML = project.phases.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        if (!project) {
+            select.innerHTML = '<option value="">-- Vyber projekt --</option>';
+            return;
+        }
+
+        const activePhases = (project.phases || []).filter(p => !p.deleted);
+        if (!activePhases.length) {
+            select.innerHTML = '<option value="">-- Projekt nema aktivne fazy --</option>';
+            return;
+        }
+
+        select.innerHTML = activePhases.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
     },
 
     saveTransaction() {
@@ -442,11 +535,34 @@ const App = {
         const amount = document.getElementById('m_amount').value;
         const desc = document.getElementById('m_desc').value;
 
-        if (!pid || !phid || !amount) return alert("Chýba suma alebo fáza!");
+        if (!pid || !phid || !amount) return alert('Chyba suma alebo faza!');
 
         Projects.addTransaction(pid, phid, amount, desc, cat);
-        alert("Hotovo! ✅");
+        this.pendingExpenseProjectId = pid;
+        this.pendingExpensePhaseId = phid;
+        alert('Hotovo!');
         this.navigate('dashboard');
+        this.showProjectDetail(pid);
+    },
+
+    openAddExpense(projectId, phaseId = '') {
+        this.pendingExpenseProjectId = projectId || null;
+        this.pendingExpensePhaseId = phaseId || null;
+        this.hideSheet();
+        this.navigate('add');
+    },
+
+    deleteTransaction(projectId, transactionId) {
+        if (!confirm('Odstranit tento vydavok?')) return;
+
+        Projects.deleteTransaction(projectId, transactionId);
+
+        const current = Projects.get(projectId);
+        if (current) {
+            this.showProjectDetail(projectId);
+        } else {
+            this.refresh();
+        }
     },
 
     // --- ACTIONS ---
