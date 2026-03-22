@@ -6,16 +6,7 @@ const App = {
         // Počká na prvú synchronizáciu pred renderovaním
         const syncPromise = Store.initSync();
         
-        if (syncPromise && syncPromise.then) {
-            syncPromise.then(() => {
-                this.navigate('dashboard');
-            }).catch(() => {
-                this.navigate('dashboard');
-            });
-        } else {
-            this.navigate('dashboard');
-        }
-        
+        // Inicializuj status indikátor, event listeners a gestures HNEĎ
         this.setupStatusIndicator();
         this.setupSheetGestures();
         this.setupDataListeners();
@@ -25,14 +16,31 @@ const App = {
                 .then(reg => console.log('SW registered!', reg))
                 .catch(err => console.log('SW failed', err));
         }
+        
+        // Teraz počka na prvú synchronizáciu
+        if (syncPromise && syncPromise.then) {
+            syncPromise.then(() => {
+                this.navigate('dashboard');
+            }).catch(() => {
+                this.navigate('dashboard');
+            });
+        } else {
+            this.navigate('dashboard');
+        }
     },
     
     setupDataListeners() {
         window.addEventListener('projectDataChanged', (e) => {
+            // Skontroluj či je bottom sheet otvorený
+            const sheet = document.getElementById('bottomSheet');
+            const isSheetOpen = sheet && sheet.classList.contains('active');
+            
             if (this.currentPage === 'dashboard') {
                 this.refreshProjectCard(e.detail.projectId);
             }
-            if (this.currentProjectId === e.detail.projectId && this.currentPage === 'dashboard') {
+            
+            // Neobnovuj detail ak je sheet otvorený (idú lokálne aktualizácie)
+            if (this.currentProjectId === e.detail.projectId && this.currentPage === 'dashboard' && !isSheetOpen) {
                 this.showProjectDetail(e.detail.projectId);
             }
         });
@@ -144,7 +152,10 @@ const App = {
         const lastSyncEl = document.getElementById('lastSync');
         let lastSyncTime = null;
         
+        console.log("setupStatusIndicator init, el:", el, "navigator.onLine:", navigator.onLine);
+        
         const updateStatus = (online) => {
+            console.log("updateStatus called with:", online);
             if (online) {
                 el.style.color = '#10b981';
                 el.innerHTML = '<span style="display: block; width: 6px; height: 6px; background: #10b981; border-radius: 50%;"></span> Online';
@@ -163,6 +174,7 @@ const App = {
         };
 
         window.addEventListener('syncSuccess', () => {
+            console.log("syncSuccess event!");
             updateStatus(true);
             lastSyncTime = Date.now();
             lastSyncEl.textContent = formatLastSync();
@@ -170,7 +182,9 @@ const App = {
                 syncIcon.classList.remove('fa-spin');
             }
         });
+        
         window.addEventListener('syncError', () => {
+            console.log("syncError event!");
             updateStatus(false);
             if (syncIcon) {
                 syncIcon.classList.remove('fa-spin');
@@ -178,6 +192,7 @@ const App = {
         });
         
         window.addEventListener('syncStart', () => {
+            console.log("syncStart event!");
             if (syncIcon) {
                 syncIcon.classList.add('fa-spin');
             }
@@ -191,6 +206,7 @@ const App = {
         }, 60000);
         
         // Initial status
+        console.log("Setting initial status to", navigator.onLine);
         updateStatus(navigator.onLine);
     },
 
@@ -434,11 +450,6 @@ const App = {
     },
 
     // --- ACTIONS ---
-    toggleTask(projectId, phaseId, taskId) {
-        Projects.toggleTask(projectId, phaseId, taskId);
-        // Refresh detailu (sheetu) ak je otvorený
-        this.showProjectDetail(projectId);
-    },
 
     // --- SHEET UI ---
     showSheet() {

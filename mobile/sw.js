@@ -1,12 +1,12 @@
-const CACHE_NAME = 'tracker-v5';
+const CACHE_NAME = 'tracker-v6';
 const urlsToCache = [
   './',
   './index.html',
   './styles.css',
-  './app.js?v=4',
+  './app.js?v=7',
   './icon.svg',
-  './../shared/store.js?v=4',
-  './../shared/projects.js?v=4',
+  './../shared/store.js?v=7',
+  './../shared/projects.js?v=7',
   'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
   'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap'
 ];

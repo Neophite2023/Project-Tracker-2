@@ -15,26 +15,40 @@ const Store = {
     },
 
     getProjects() {
-        const data = localStorage.getItem(this.KEYS.PROJECTS);
-        return data ? JSON.parse(data) : [];
+        try {
+            const data = localStorage.getItem(this.KEYS.PROJECTS);
+            return data ? JSON.parse(data) : [];
+        } catch (e) {
+            console.error("Error parsing projects from localStorage:", e);
+            return [];
+        }
     },
 
     saveProjects(projects) {
-        const newData = JSON.stringify(projects);
-        const currentData = localStorage.getItem(this.KEYS.PROJECTS);
-        
-        if (currentData === newData) return;
-        
-        localStorage.setItem(this.KEYS.PROJECTS, newData);
-        
-        if (navigator.onLine) {
-            this.pushData(true);
+        try {
+            const newData = JSON.stringify(projects);
+            const currentData = localStorage.getItem(this.KEYS.PROJECTS);
+            
+            if (currentData === newData) return;
+            
+            localStorage.setItem(this.KEYS.PROJECTS, newData);
+            
+            if (navigator.onLine) {
+                this.pushData(true);
+            }
+        } catch (e) {
+            console.error("Error saving projects:", e);
         }
     },
 
     getSettings() {
-        const data = localStorage.getItem(this.KEYS.SETTINGS);
-        return data ? JSON.parse(data) : { currency: '€', theme: 'light' };
+        try {
+            const data = localStorage.getItem(this.KEYS.SETTINGS);
+            return data ? JSON.parse(data) : { currency: '€', theme: 'light' };
+        } catch (e) {
+            console.error("Error parsing settings:", e);
+            return { currency: '€', theme: 'light' };
+        }
     },
 
     // --- SERVER SYNC ---
@@ -50,7 +64,7 @@ const Store = {
         
         window.addEventListener('offline', () => {
             console.log("Gone offline, data will sync when back online");
-            window.dispatchEvent(new CustomEvent('syncError'));
+            // NEUTIEKAJ syncError tu - nec kontrolluje sa online status cez listeners
         });
         
         // Pravidelny polling (kazdych 10 sekund) - VŽDY sa musí nastaviť
@@ -78,41 +92,24 @@ const Store = {
     },
 
     async fetchData() {
-        if (this.isSyncing) return;
+        if (this.isSyncing) return Promise.resolve();
         
+        console.log("fetchData() starting...");
         this.isSyncing = true;
         window.dispatchEvent(new CustomEvent('syncStart'));
         
         try {
+            console.log("Fetching from:", this.serverUrl);
             const response = await fetch(this.serverUrl);
-            if (!response.ok) throw new Error("Server error");
+            console.log("Fetch response status:", response.status, response.ok);
+            if (!response.ok) throw new Error("Server error: " + response.status);
             
             const serverData = await response.json();
             console.log("Fetch success, server timestamp:", serverData.timestamp);
             
-            // Debug: Log task states before merge
+            // Item-level merge
             const localProjects = this.getProjects();
             const serverProjects = serverData.projects || [];
-            if (localProjects.length > 0 && serverProjects.length > 0) {
-                localProjects.forEach(lp => {
-                    const sp = serverProjects.find(p => p.id === lp.id);
-                    if (sp) {
-                        lp.phases?.forEach(lphase => {
-                            const sphase = sp.phases?.find(p => p.id === lphase.id);
-                            if (sphase) {
-                                lphase.tasks?.forEach(lt => {
-                                    const st = sphase.tasks?.find(t => t.id === lt.id);
-                                    if (st && lt.completed !== st.completed) {
-                                        console.log(`Task ${lt.id} differs: local=${lt.completed}, server=${st.completed}`);
-                                    }
-                                });
-                            }
-                        });
-                    }
-                });
-            }
-            
-            // Item-level merge
             const { merged: mergedProjects, changedProjectIds } = this.mergeProjectsWithDiff(localProjects, serverProjects);
             
             // Uložíme zmiešané dáta iba ak sa niečo zmenilo
@@ -122,7 +119,6 @@ const Store = {
             if (currentData !== newData) {
                 localStorage.setItem(this.KEYS.PROJECTS, newData);
                 
-                // Emituje konkrétne eventy pre zmenené projekty
                 if (changedProjectIds.length > 0) {
                     changedProjectIds.forEach(projectId => {
                         window.dispatchEvent(new CustomEvent('projectDataChanged', { 
@@ -143,13 +139,11 @@ const Store = {
                 }
             }
             
-            // NEBUDI PUSHTAT v fetchData - let server be dominant!
-            // pushData() sa ma volat LEN ked USER zmeni data (saveProjects, addTask, atd)
-            
+            console.log("Sync SUCCESS! Emitting syncSuccess event");
             window.dispatchEvent(new CustomEvent('syncSuccess'));
-
+            
         } catch (e) {
-            console.warn("Sync failed:", e);
+            console.error("Sync FAILED:", e.message, e);
             window.dispatchEvent(new CustomEvent('syncError'));
         } finally {
             this.isSyncing = false;
