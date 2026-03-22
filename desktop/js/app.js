@@ -587,7 +587,7 @@ const App = {
                 </div>
                 <div style="display: flex; align-items: center; gap: 0.75rem;">
                     <span style="font-weight: 700; font-size: 1rem;">${t.amount.toLocaleString()} €</span>
-                    <button onclick="App.deleteTransaction('${projectId}', '${t.id}')" style="background: none; border: none; color: #d1d5db; cursor: pointer; transition: 0.2s;"><i class="fas fa-times-circle"></i></button>
+                    <button onclick="App.deleteTransaction('${projectId}', '${t.id}')" style="background: none; border: none; color: #ef4444; cursor: pointer; transition: 0.2s;"><i class="fas fa-times-circle"></i></button>
                 </div>
             </div>
         `;
