@@ -230,10 +230,13 @@ const Store = {
                     });
                     mergedPhase.tasks = Array.from(taskMap.values());
                     
-                    // Prepočítame progress ak sú tam úlohy
-                    if (mergedPhase.tasks.length > 0) {
-                        const completed = mergedPhase.tasks.filter(t => t.completed).length;
-                        mergedPhase.progress = Math.round((completed / mergedPhase.tasks.length) * 100);
+                    // Prepočítame progress ak sú tam úlohy (iba active)
+                    const activeTasks = mergedPhase.tasks.filter(t => !t.deleted);
+                    if (activeTasks.length > 0) {
+                        const completed = activeTasks.filter(t => t.completed).length;
+                        mergedPhase.progress = Math.round((completed / activeTasks.length) * 100);
+                    } else {
+                        mergedPhase.progress = 0;
                     }
 
                     phaseMap.set(ph.id, mergedPhase);

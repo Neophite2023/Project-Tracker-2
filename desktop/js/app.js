@@ -501,9 +501,10 @@ const App = {
     },
 
     createPhaseRow(projectId, phase) {
-        const hasTasks = phase.tasks && phase.tasks.length > 0;
-        const taskHtml = (phase.tasks || []).map(t => `
-            <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+        const activeTasks = (phase.tasks || []).filter(t => !t.deleted);
+        const hasTasks = activeTasks && activeTasks.length > 0;
+        const taskHtml = activeTasks.map(t => `
+            <div id="task-${t.id}" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
                 <input type="checkbox" ${t.completed ? 'checked' : ''} onchange="App.toggleTask('${projectId}', '${phase.id}', '${t.id}')">
                 <span id="task-text-${t.id}" style="flex: 1; font-size: 0.875rem; ${t.completed ? 'text-decoration: line-through; color: var(--text-muted);' : ''}">${t.text}</span>
                 <button onclick="App.deleteTask('${projectId}', '${phase.id}', '${t.id}')" style="background:none; border:none; color:#d1d5db; cursor:pointer;"><i class="fas fa-times"></i></button>
@@ -559,65 +560,11 @@ const App = {
     },
 
     toggleTask(projectId, phaseId, taskId) {
-        // 1. Uložiť zmenu v dátach
-        Projects.toggleTask(projectId, phaseId, taskId);
-        
-        // 2. Nájsť projekt a fázu
-        const project = Projects.get(projectId);
-        if (!project) return;
-        const phase = project.phases.find(p => p.id === phaseId);
-        const task = phase.tasks.find(t => t.id === taskId);
-        
-        // 3. Smart Update DOM prvkov (bez refreshu stránky)
-        
-        // A) Update štýlu úlohy (prečiarknutie)
-        const taskTextEl = document.getElementById(`task-text-${taskId}`);
-        if (taskTextEl) {
-            if (task.completed) {
-                taskTextEl.style.textDecoration = 'line-through';
-                taskTextEl.style.color = 'var(--text-muted)';
-            } else {
-                taskTextEl.style.textDecoration = 'none';
-                taskTextEl.style.color = '';
-            }
-        }
-
-        // B) Update Progress Baru Fázy
-        // (Projects.toggleTask už prepočítal phase.progress vnútorne v Projects.updatePhase logike ak bola volaná,
-        // ale Projects.toggleTask to robí v Projects.js? Pozrime sa...
-        // Projects.js toggleTask volá this.save(project), ale neprepočítava automaticky progress fázy!
-        // Musíme si progress prepočítať tu alebo v Projects.js.
-        // V Projects.js updatePhase to robí, ale toggleTask nie.
-        // Oprava: Spravíme prepočet tu pre UI.)
-        
-        if (phase.tasks && phase.tasks.length > 0) {
-            const activeTasks = phase.tasks.filter(t => !t.deleted);
-            if (activeTasks.length > 0) {
-                const completedCount = activeTasks.filter(t => t.completed).length;
-                phase.progress = Math.round((completedCount / activeTasks.length) * 100);
-            } else {
-                phase.progress = 0;
-            }
-            
-            // Update UI Fázy
-            const barEl = document.getElementById(`phase-progress-bar-${phaseId}`);
-            const textEl = document.getElementById(`phase-progress-text-${phaseId}`);
-            if (barEl) barEl.style.width = `${phase.progress}%`;
-            if (textEl) textEl.textContent = `${phase.progress}%`;
-        }
-
-        // C) Update Celkových Štatistík Projektu
-        const stats = Projects.calculateStats(project);
-        const totalStatsEl = document.getElementById('project-total-stats');
-        const totalProgressEl = document.getElementById('project-progress-text');
-        
-        if (totalStatsEl) totalStatsEl.textContent = `${stats.totalSpent.toLocaleString()} / ${stats.totalBudget.toLocaleString()} €`;
-        if (totalProgressEl) totalProgressEl.textContent = `${stats.progress}% hotovo`;
+        TaskHelpers.handleToggleTask(projectId, phaseId, taskId);
     },
 
     deleteTask(projectId, phaseId, taskId) {
-        Projects.deleteTask(projectId, phaseId, taskId);
-        this.refresh();
+        TaskHelpers.handleDeleteTask(projectId, phaseId, taskId);
     },
 
     createTransactionRow(projectId, t) {

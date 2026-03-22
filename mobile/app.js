@@ -329,60 +329,46 @@ const App = {
         if (!text) return;
         
         Projects.addTask(projectId, phaseId, text);
-        input.value = ''; // Vymaž input
+        input.value = '';
         
-        // Aktualizuj obsah bez zavretia/otvárania okna
+        // Aktualizuj len zoznam úloh v sheet okne
         const project = Projects.get(projectId);
         if (project) {
-            const stats = Projects.calculateStats(project);
-            const phaseStats = stats.phaseStats;
-            const ph = phaseStats.find(p => p.id === phaseId);
-            
-            if (ph) {
-                const tasksHtml = (ph.tasks || []).map(t => `
-                    <label class="m-task">
-                        <input type="checkbox" ${t.completed ? 'checked' : ''} onchange="App.toggleTask('${projectId}', '${phaseId}', '${t.id}')">
-                        <span style="${t.completed ? 'text-decoration: line-through; color: var(--text-muted);' : ''}">${t.text}</span>
-                    </label>
-                `).join('');
-                
-                // Nájdi prvok s úlohami a aktualizuj
+            const phase = project.phases.find(p => p.id === phaseId);
+            if (phase) {
+                const tasksHtml = UIHelpers.renderTasksList(phase.tasks, projectId, phaseId, 'mobile');
                 const tasksContainer = document.querySelector(`[data-phase-id="${phaseId}"] .m-tasks`);
-                if (tasksContainer) {
-                    tasksContainer.innerHTML = tasksHtml;
-                }
+                if (tasksContainer) tasksContainer.innerHTML = tasksHtml;
+            }
+        }
+    },
+
+    toggleTask(projectId, phaseId, taskId) {
+        TaskHelpers.handleToggleTask(projectId, phaseId, taskId);
+        
+        // Aktualizuj len zoznam úloh v sheet okne
+        const project = Projects.get(projectId);
+        if (project) {
+            const phase = project.phases.find(p => p.id === phaseId);
+            if (phase) {
+                const tasksHtml = UIHelpers.renderTasksList(phase.tasks, projectId, phaseId, 'mobile');
+                const tasksContainer = document.querySelector(`[data-phase-id="${phaseId}"] .m-tasks`);
+                if (tasksContainer) tasksContainer.innerHTML = tasksHtml;
             }
         }
     },
 
     deleteTask(projectId, phaseId, taskId) {
-        Projects.deleteTask(projectId, phaseId, taskId);
+        TaskHelpers.handleDeleteTask(projectId, phaseId, taskId);
         
-        // Aktualizuj obsah bez zavretia/otvárania okna
+        // Aktualizuj len zoznam úloh v sheet okne
         const project = Projects.get(projectId);
         if (project) {
-            const stats = Projects.calculateStats(project);
-            const phaseStats = stats.phaseStats;
-            const ph = phaseStats.find(p => p.id === phaseId);
-            
-            if (ph) {
-                const tasksHtml = (ph.tasks || []).map(t => `
-                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
-                        <label class="m-task" style="margin-bottom: 0; flex: 1; display: flex; align-items: center; gap: 0.5rem;">
-                            <input type="checkbox" ${t.completed ? 'checked' : ''} onchange="App.toggleTask('${projectId}', '${phaseId}', '${t.id}')">
-                            <span style="flex: 1; ${t.completed ? 'text-decoration: line-through; color: var(--text-muted);' : ''}">${t.text}</span>
-                        </label>
-                        <button onclick="App.deleteTask('${projectId}', '${phaseId}', '${t.id}')" style="background: none; border: none; color: #d1d5db; cursor: pointer; padding: 0.5rem; font-size: 1rem;">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>
-                `).join('');
-                
-                // Nájdi prvok s úlohami a aktualizuj
+            const phase = project.phases.find(p => p.id === phaseId);
+            if (phase) {
+                const tasksHtml = UIHelpers.renderTasksList(phase.tasks, projectId, phaseId, 'mobile');
                 const tasksContainer = document.querySelector(`[data-phase-id="${phaseId}"] .m-tasks`);
-                if (tasksContainer) {
-                    tasksContainer.innerHTML = tasksHtml;
-                }
+                if (tasksContainer) tasksContainer.innerHTML = tasksHtml;
             }
         }
     },
