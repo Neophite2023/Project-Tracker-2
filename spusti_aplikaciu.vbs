@@ -4,9 +4,9 @@ Set Fso = CreateObject("Scripting.FileSystemObject")
 currentDir = Fso.GetParentFolderName(WScript.ScriptFullName)
 WshShell.CurrentDirectory = currentDir
 
-url = "http://127.0.0.1:8005/desktop/"
-serverScript = currentDir & "\spusti_server.vbs"
-serverExitCode = WshShell.Run("cscript //nologo """ & serverScript & """", 0, True)
+url = "https://doma-pc.tail85a624.ts.net:8005/desktop/"
+serverScript = currentDir & "\spusti_server_https.vbs"
+serverExitCode = WshShell.Run("wscript.exe """ & serverScript & """", 0, True)
 
 If serverExitCode <> 0 Then
     WScript.Quit serverExitCode

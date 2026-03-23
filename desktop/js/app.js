@@ -277,23 +277,23 @@ const App = {
             const resp = await fetch('/api/info');
             const info = await resp.json();
             
-            // Automaticky určíme IP adresu servera (preferujeme LAN IP pred localhost)
-            const serverIp = info.ip || window.location.hostname;
+            // Automaticky určíme IP adresu servera (preferujeme Tailscale HTTPS pre stabilné pripojenie k PWA)
+            const serverHost = 'doma-pc.tail85a624.ts.net';
             const serverPort = info.port || '8005';
-            const serverBase = `http://${serverIp}:${serverPort}`;
+            const serverBase = `https://${serverHost}:${serverPort}`;
 
-            // Nastavíme URL adresy automaticky, ak nie sú v localStorage
-            let pwaBaseUrl = this.getConfiguredMobilePwaUrl() || `${serverBase}/mobile/`;
-            let syncBaseUrl = this.getConfiguredMobileSyncBaseUrl() || serverBase;
+            // Nastavíme URL adresy pre GitHub Pages PWA a zabezpečený sync server
+            let pwaBaseUrl = 'https://neophite2023.github.io/Project-Tracker-2/mobile/';
+            let syncBaseUrl = serverBase;
 
             const launchUrl = this.buildMobileLaunchUrl(pwaBaseUrl, syncBaseUrl);
-            const serverHttpOnly = (info && info.scheme === 'http');
+            const serverHttpOnly = false; 
 
             this.showModal('Mobilný prístup', `
                 <div style="text-align: center;">
                     <p style="margin-bottom: 1rem; color: var(--text-muted); font-size: 0.9rem;">
                         Naskenujte tento kód iPhonom pre okamžitú synchronizáciu.<br>
-                        <strong>Status:</strong> Spojenie cez lokálnu sieť (HTTP)
+                        <strong>Status:</strong> Zabezpečené spojenie (HTTPS Tailscale)
                     </p>
                     <div style="display: flex; justify-content: center; margin-bottom: 1.5rem;">
                         <div id="qrcode" style="background: white; padding: 1rem; border-radius: 1rem; border: 1px solid #e5e7eb;"></div>

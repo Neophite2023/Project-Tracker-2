@@ -555,12 +555,12 @@ const App = {
         let syncBaseUrl = Store.getSyncBaseUrl();
 
         if (!syncBaseUrl) {
-            // Zmeníme predvolenú hodnotu na http:// pre lokálne testovanie
-            const defaultUrl = Store.getStoredSyncBaseUrl() || 'http://';
-            const input = prompt('Zadajte sync URL servera (napr. http://100.75.40.82:8005):', defaultUrl);
+            // Predvolená hodnota je teraz tvoja zabezpečená Tailscale doména
+            const defaultUrl = Store.getStoredSyncBaseUrl() || 'https://doma-pc.tail85a624.ts.net:8005';
+            const input = prompt('Zadajte sync URL servera (napr. https://doma-pc.tail85a624.ts.net:8005):', defaultUrl);
             if (input === null) return;
 
-            // Druhý parameter 'true' povolí HTTP adresy
+            // Druhý parameter 'true' povolí HTTP adresy (pre istotu), ale preferujeme HTTPS
             if (!Store.setSyncBaseUrl(input, true)) {
                 alert('Neplatná URL adresa.');
                 return;
