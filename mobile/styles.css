@@ -43,15 +43,51 @@ body {
     font-weight: 800;
 }
 
-#syncBtn {
-    background: #f3f4f6;
+.m-sync-button-compact {
     border: none;
-    width: 2.5rem;
-    height: 2.5rem;
-    border-radius: 50%;
-    color: var(--text-dark);
-    font-size: 1.1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background: var(--primary);
+    color: var(--white);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.7rem;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+    min-width: 130px; /* Zabezpečí stálu šírku pri točení */
 }
+
+.m-sync-button-compact i {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    line-height: 1;
+    text-align: center;
+    transform-origin: center center;
+}
+
+.m-sync-button-compact:active {
+    background: var(--primary-dark);
+}
+
+.m-status-pill {
+    font-size: 0.7rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: #f3f4f6;
+    padding: 0.5rem 0.65rem;
+    border-radius: 0.5rem;
+    color: var(--text-dark);
+}
+
+/* Odstránené staré štýly .m-sync-button */
 
 /* Content Area */
 .content-area {

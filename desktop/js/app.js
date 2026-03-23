@@ -7,6 +7,10 @@ window.onerror = function(msg, url, line) {
 const App = {
     currentPage: 'dashboard',
     currentProjectId: null,
+    STORAGE_KEYS: {
+        MOBILE_PWA_URL: 'projecttracker_mobile_pwa_url',
+        MOBILE_SYNC_BASE_URL: 'projecttracker_mobile_sync_base_url'
+    },
 
     init() {
         console.log("App.init() called");
@@ -197,44 +201,130 @@ const App = {
         }
     },
 
+    normalizeAbsoluteUrl(value, allowHttp = true) {
+        if (!value) return '';
+        try {
+            const url = new URL(String(value).trim());
+            if (url.protocol !== 'https:' && !(allowHttp && url.protocol === 'http:')) {
+                return '';
+            }
+            url.hash = '';
+            url.search = '';
+            return `${url.protocol}//${url.host}${url.pathname}`;
+        } catch (e) {
+            return '';
+        }
+    },
+    getConfiguredMobilePwaUrl() {
+        try {
+            const stored = localStorage.getItem(this.STORAGE_KEYS.MOBILE_PWA_URL) || '';
+            return this.normalizeAbsoluteUrl(stored, false);
+        } catch (e) {
+            return '';
+        }
+    },
+    getConfiguredMobileSyncBaseUrl() {
+        try {
+            const stored = localStorage.getItem(this.STORAGE_KEYS.MOBILE_SYNC_BASE_URL) || '';
+            return this.normalizeAbsoluteUrl(stored, false);
+        } catch (e) {
+            return '';
+        }
+    },
+    getDefaultSyncBaseUrl(info) {
+        const fromApi = this.normalizeAbsoluteUrl((info && info.sync_base_url) || '', true);
+        if (fromApi && fromApi.startsWith('https://')) return fromApi;
+        const host = (info && info.ip) ? info.ip : window.location.hostname;
+        const port = (info && info.port) ? info.port : (window.location.port || '8005');
+        return `https://${host}:${port}`;
+    },
+    configureMobileLinks(defaultSyncBase = '') {
+        const currentPwa = this.getConfiguredMobilePwaUrl();
+        const currentSyncBase = this.getConfiguredMobileSyncBaseUrl() || defaultSyncBase;
+        const pwaInput = prompt(
+            "Zadajte HTTPS URL mobilnej PWA (napr. https://tracker.example.com/):",
+            currentPwa || 'https://'
+        );
+        if (pwaInput === null) return false;
+        const normalizedPwa = this.normalizeAbsoluteUrl(pwaInput, false);
+        if (!normalizedPwa) {
+            alert("Neplatna HTTPS URL pre mobilnu PWA.");
+            return false;
+        }
+        const syncInput = prompt(
+            "Zadajte HTTPS sync base URL pre server.py. Prazdne = pouzit default z tohto PC:",
+            currentSyncBase || defaultSyncBase
+        );
+        if (syncInput === null) return false;
+        const normalizedSync = this.normalizeAbsoluteUrl(syncInput.trim() ? syncInput : defaultSyncBase, false);
+        if (!normalizedSync) {
+            alert("Neplatna sync base URL. Musi byt HTTPS.");
+            return false;
+        }
+        localStorage.setItem(this.STORAGE_KEYS.MOBILE_PWA_URL, normalizedPwa);
+        localStorage.setItem(this.STORAGE_KEYS.MOBILE_SYNC_BASE_URL, normalizedSync);
+        return true;
+    },
+    buildMobileLaunchUrl(pwaBaseUrl, syncBaseUrl) {
+        const launchUrl = new URL(pwaBaseUrl);
+        launchUrl.searchParams.set('sync', syncBaseUrl);
+        return launchUrl.toString();
+    },
     async showMobileAccess() {
-        this.showModal('Mobilný prístup', '<p>Načítavam informácie...</p>');
-        
+        this.showModal('Mobilný prístup', '<p>Pripravujem QR kód...</p>');
+
         try {
             const resp = await fetch('/api/info');
             const info = await resp.json();
-            const url = `http://${info.ip}:${info.port}/mobile/`;
             
+            // Automaticky určíme IP adresu servera (preferujeme LAN IP pred localhost)
+            const serverIp = info.ip || window.location.hostname;
+            const serverPort = info.port || '8005';
+            const serverBase = `http://${serverIp}:${serverPort}`;
+
+            // Nastavíme URL adresy automaticky, ak nie sú v localStorage
+            let pwaBaseUrl = this.getConfiguredMobilePwaUrl() || `${serverBase}/mobile/`;
+            let syncBaseUrl = this.getConfiguredMobileSyncBaseUrl() || serverBase;
+
+            const launchUrl = this.buildMobileLaunchUrl(pwaBaseUrl, syncBaseUrl);
+            const serverHttpOnly = (info && info.scheme === 'http');
+
             this.showModal('Mobilný prístup', `
                 <div style="text-align: center;">
-                    <p style="margin-bottom: 1rem; color: var(--text-muted);">
-                        Naskenujte tento kód vaším mobilom. <br>
-                        Uistite sa, že máte zapnutý <strong>Tailscale</strong> (alebo ste na rovnakej Wi-Fi).
+                    <p style="margin-bottom: 1rem; color: var(--text-muted); font-size: 0.9rem;">
+                        Naskenujte tento kód iPhonom pre okamžitú synchronizáciu.<br>
+                        <strong>Status:</strong> Spojenie cez lokálnu sieť (HTTP)
                     </p>
                     <div style="display: flex; justify-content: center; margin-bottom: 1.5rem;">
                         <div id="qrcode" style="background: white; padding: 1rem; border-radius: 1rem; border: 1px solid #e5e7eb;"></div>
                     </div>
-                    <div style="background: #f3f4f6; padding: 0.75rem; border-radius: 0.5rem; word-break: break-all; font-family: monospace;">
-                        <a href="${url}" target="_blank">${url}</a>
+                    <div style="background: #f3f4f6; padding: 0.75rem; border-radius: 0.5rem; word-break: break-all; font-family: monospace; font-size: 0.85rem;">
+                        <a href="${launchUrl}" target="_blank">${launchUrl}</a>
                     </div>
+                    <div style="margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: center;">
+                        <button onclick="App.configureMobileLinks('${serverBase}')" class="btn btn-secondary btn-sm">Zmeniť nastavenia</button>
+                        <button onclick="App.hideModal()" class="btn btn-primary btn-sm">Hotovo</button>
+                    </div>
+                    ${serverHttpOnly ? `
+                    <div style="margin-top: 1rem; background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; border-radius: 0.5rem; padding: 0.6rem; font-size: 0.75rem; text-align: left;">
+                        Poznámka: Synchronizácia v Safari bude fungovať, ale iPhone PWA (ikonka na ploche) vyžaduje HTTPS. Pre plnohodnotné PWA spustite server s <code>--https</code>.
+                    </div>` : ''}
                 </div>
             `);
 
             setTimeout(() => {
-                const container = document.getElementById("qrcode");
+                const container = document.getElementById('qrcode');
                 if (container && typeof qrcode !== 'undefined') {
                     const qr = qrcode(0, 'L');
-                    qr.addData(url);
+                    qr.addData(launchUrl);
                     qr.make();
-                    container.innerHTML = qr.createSvgTag(5, 4); 
+                    container.innerHTML = qr.createSvgTag(5, 4);
                 }
             }, 100);
-
         } catch (e) {
-            this.showModal('Chyba', '<p>Nepodarilo sa získať IP adresu servera.</p>');
+            this.showModal('Chyba', '<p>Nepodarilo sa zistiť informácie o serveri. Skontrolujte, či server.py beží.</p>');
         }
     },
-
     navigate(page, projectId = null) {
         this.currentPage = page;
         this.currentProjectId = projectId;

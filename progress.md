@@ -102,3 +102,94 @@ if (activeTasks.length > 0) {
 ## ✨ Status: HOTOVO
 
 Všetky identifikované chyby sú opravené. Aplikácia beží bez problémov.
+
+---
+
+## Update 2026-03-22 - DB rezim a synchronizacia
+
+### 6. `server.py` - prechod na cisty DB rezim
+**Problem:** Data sa este drzali aj v `shared/data.json` (prechodne spravanie), ciel bol cisty DB rezim.
+
+**Zmeny:**
+- Odstranene citanie/zapisovanie JSON suboru `shared/data.json` zo server runtime.
+- `DataStore` bezi uz iba nad `shared/data.db` (SQLite).
+- `GET /api/data` cita iba z DB.
+- `POST /api/data` zapisuje iba do DB a vracia `db_written` + `success`.
+- Bootstrap zostal DB-first (relational + legacy DB snapshot fallback).
+
+**Vysledok:** OK cisty DB rezim na serveri, bez JSON persistencie.
+
+---
+
+### 7. `mobile/app.js` - oprava okamziteho refreshu po zmazani vydavku
+**Problem:** Po odstraneni vydavku sa suma a zoznam v mobile neaktualizovali vzdy hned.
+
+**Zmena:** `deleteTransaction()` po mazani vola `this.refresh()`.
+
+**Vysledok:** OK okamzita aktualizacia dashboardu aj detailu.
+
+---
+
+### 8. `mobile/index.html` + `mobile/sw.js` - cache invalidacia
+**Problem:** Mobil mohol drzat starsiu verziu JS kvoli cache.
+
+**Zmeny:**
+- `app.js?v=8` -> `app.js?v=9`
+- Service worker cache `tracker-v8` -> `tracker-v9`
+
+**Vysledok:** OK nove verzie sa nacitavaju bez zastaraleho cache.
+
+---
+
+### 9. `desktop/js/app.js` - oprava ponuky faz pri "Pridat vydavok"
+**Problem:** V selecte faz sa zobrazovali aj neaktivne/odstranene fazy, co vyzeralo ako duplicity.
+
+**Zmeny:**
+- V `showTransactionForm()` sa filtruju iba aktivne fazy (`!deleted`).
+- Pridana deduplikacia podla `phase.id`.
+- Ak projekt nema aktivne fazy, select je `disabled` s informacnou hlaskou.
+
+**Vysledok:** OK ponuka faz obsahuje iba validne aktivne fazy.
+
+---
+
+## Smoke test (DB-only)
+
+Spusteny end-to-end smoke test proti bezacemu serveru:
+- `api/info` OK
+- `api/data` read/write OK
+- zapis testovacej transakcie potvrdeny v DB
+- `shared/data.json` sa pri zapise nezmenil (mtime/hash bez zmeny)
+- obnova povodneho stavu OK
+
+**Vysledok:** `PASS 9/9`, `FAIL 0/9`
+
+---
+
+## Update 2026-03-23 - Overenie PWA a architektúry
+
+### 10. Potvrdenie PWA (iPhone / iOS)
+**Stav:** ✅ TESTOVANÉ A FUNKČNÉ
+- Aplikácia spĺňa všetky požiadavky pre Apple PWA (`apple-mobile-web-app-capable`).
+- Service Worker (`sw.js`) správne cacheuje assety pre offline beh.
+- Ikona a standalone režim fungujú správne po pridaní na plochu.
+
+### 11. Architektúra "Local-first"
+**Princíp:**
+- Primárnym zdrojom dát pre mobilnú verziu je `localStorage` v zariadení.
+- Aplikácia je plne funkčná bez internetového pripojenia (offline-first).
+- **Synchronizácia** s desktopovým serverom je doplnková funkcia vyvolaná manuálne používateľom.
+- Konflikty sa riešia cez `updatedAt` timestampy na úrovni projektov, fáz aj úloh.
+
+---
+
+## ✨ Status: PROJEKT STABILNÝ
+
+Všetky kľúčové funkcie (Desktop, Mobile PWA, Sync, SQLite DB) sú implementované a overené v reálnej prevádzke.
+
+---
+
+## Git
+
+- Posledné overenie: 2026-03-23
+- Verzia: 1.0.0-pwa-ready

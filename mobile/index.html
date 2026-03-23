@@ -9,9 +9,15 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Tracker">
-    <link rel="apple-touch-icon" href="icon.svg">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-touch-fullscreen" content="yes">
+    <meta name="format-detection" content="telephone=no">
+    <link rel="apple-touch-icon" href="icon.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="icon.png">
     <link rel="icon" type="image/svg+xml" href="icon.svg">
     <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#10b981">
 
     <!-- Styles & Fonts -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -22,13 +28,14 @@
     <!-- Horná lišta -->
     <header class="mobile-header">
         <h1 id="mobileTitle">Moje projekty</h1>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span id="lastSync" style="font-size: 0.65rem; opacity: 0.7;"></span>
-            <button onclick="Store.triggerSync()" style="background: none; border: none; color: white; font-size: 1rem; padding: 0.3rem; cursor: pointer;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: nowrap;">
+            <button id="syncNowBtn" onclick="App.syncNow()" class="m-sync-button-compact">
                 <i class="fas fa-sync-alt" id="syncIcon"></i>
+                <span>SYNCHRONIZOVAŤ</span>
             </button>
-            <div id="connectionStatus" style="font-size: 0.7rem; display: flex; align-items: center; gap: 0.3rem; background: rgba(255,255,255,0.1); padding: 0.2rem 0.5rem; border-radius: 1rem;">
-                <span style="display: block; width: 6px; height: 6px; background: #ef4444; border-radius: 50%;"></span> Off
+            <div id="connectionStatus" class="m-status-pill">
+                <span id="statusDot" style="display: block; width: 6px; height: 6px; background: #ef4444; border-radius: 50%;"></span>
+                <span id="statusText">Off</span>
             </div>
         </div>
     </header>
@@ -62,10 +69,10 @@
     <div id="overlay" class="overlay" onclick="App.hideSheet()"></div>
 
     <!-- Skripty -->
-    <script src="./../shared/store.js?v=7"></script>
-    <script src="./../shared/projects.js?v=7"></script>
-    <script src="./../shared/ui-helpers.js?v=7"></script>
-    <script src="./../shared/task-helpers.js?v=7"></script>
-    <script src="./app.js?v=9"></script>
+    <script src="./../shared/store.js"></script>
+    <script src="./../shared/projects.js"></script>
+    <script src="./../shared/ui-helpers.js"></script>
+    <script src="./../shared/task-helpers.js"></script>
+    <script src="./app.js"></script>
 </body>
 </html>

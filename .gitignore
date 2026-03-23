@@ -1,7 +1,23 @@
-
 *.jpeg
 *.jpg
 *.log
 data.json
 shared/data.json
 nul
+
+# Databáza a zálohy
+shared/data.db
+shared/data.db-wal
+shared/data.db-shm
+Backup/
+
+# Python a logy
+__pycache__/
+*.pyc
+server.log
+srv_err.txt
+srv_out.txt
+
+# Systémové súbory
+.DS_Store
+Thumbs.db

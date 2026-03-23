@@ -8,8 +8,12 @@ import time
 import logging
 import errno
 import sqlite3
+import argparse
+import ssl
 
 PORT = 8005
+SERVER_SCHEME = 'http'
+BIND_HOST = '0.0.0.0'
 DB_FILE = 'shared/data.db'
 
 # Setup logging
@@ -503,6 +507,41 @@ def get_ip():
     except Exception:
         return '127.0.0.1'
 
+
+def get_sync_host():
+    """Returns host that clients should use for sync URL."""
+    if BIND_HOST in ('', '0.0.0.0', '::'):
+        return get_ip()
+    if BIND_HOST in ('localhost', '127.0.0.1'):
+        return '127.0.0.1'
+    return BIND_HOST
+
+
+def build_sync_base_url():
+    return f"{SERVER_SCHEME}://{get_sync_host()}:{PORT}"
+
+
+def parse_cli_args():
+    parser = argparse.ArgumentParser(description="ProjectTracker HTTP/HTTPS server")
+    parser.add_argument('--host', default='0.0.0.0', help='Bind host (default: 0.0.0.0)')
+    parser.add_argument('--port', type=int, default=PORT, help='Bind port (default: 8005)')
+    parser.add_argument(
+        '--https',
+        action='store_true',
+        help='Enable HTTPS mode (required for reliable iPhone PWA sync).'
+    )
+    parser.add_argument(
+        '--certfile',
+        default='certs/server.crt',
+        help='Path to TLS certificate file (PEM).'
+    )
+    parser.add_argument(
+        '--keyfile',
+        default='certs/server.key',
+        help='Path to TLS private key file (PEM).'
+    )
+    return parser.parse_args()
+
 # --- HANDLER ---
 class AppHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
@@ -515,7 +554,9 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({ 
                 "ip": get_ip(), 
                 "port": PORT, 
-                "status": "running" 
+                "status": "running",
+                "scheme": SERVER_SCHEME,
+                "sync_base_url": build_sync_base_url()
             })
             return
 
@@ -637,18 +678,75 @@ if __name__ == "__main__":
     # Uistime sa ze mame pracovny adresar
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
+    args = parse_cli_args()
+    
+    # Automatické generovanie certifikátov pre HTTPS
+    if args.https:
+        cert_path = os.path.abspath(args.certfile)
+        key_path = os.path.abspath(args.keyfile)
+        cert_dir = os.path.dirname(cert_path)
+        
+        if not os.path.exists(cert_dir):
+            os.makedirs(cert_dir)
+            
+        if not os.path.exists(cert_path) or not os.path.exists(key_path):
+            print("SSL certifikáty chýbajú. Pokúšam sa o automatické vygenerovanie...")
+            try:
+                import subprocess
+                subprocess.run([
+                    'openssl', 'req', '-x509', '-newkey', 'rsa:2048', 
+                    '-keyout', key_path, '-out', cert_path, 
+                    '-days', '365', '-nodes', '-subj', '/CN=localhost'
+                ], check=True)
+                print("Certifikáty úspešne vygenerované.")
+            except Exception as e:
+                print("!" * 50)
+                print("CHYBA: Nepodarilo sa automaticky vygenerovať certifikáty.")
+                print("Uistite sa, že máte nainštalovaný OpenSSL, alebo certifikáty vytvorte ručne.")
+                print("!" * 50)
+                # Pokračujeme bez HTTPS ak generovanie zlyhalo a súbory neexistujú
+                args.https = False
+
+    PORT = int(args.port)
+    BIND_HOST = args.host
+    SERVER_SCHEME = 'https' if args.https else 'http'
+
     try:
-        server = create_server_with_retry("0.0.0.0", PORT, AppHandler)
+        server = create_server_with_retry(BIND_HOST, PORT, AppHandler)
     except OSError as exc:
         logger.error("Server sa nepodarilo spustit na porte %s: %s", PORT, exc)
         raise SystemExit(1)
 
+    if args.https:
+        cert_path = os.path.abspath(args.certfile)
+        key_path = os.path.abspath(args.keyfile)
+
+        if not os.path.exists(cert_path):
+            logger.error("TLS certifikát neexistuje: %s", cert_path)
+            raise SystemExit(1)
+        if not os.path.exists(key_path):
+            logger.error("TLS privátny kľúč neexistuje: %s", key_path)
+            raise SystemExit(1)
+
+        try:
+            tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            tls_context.load_cert_chain(certfile=cert_path, keyfile=key_path)
+            server.socket = tls_context.wrap_socket(server.socket, server_side=True)
+        except Exception as exc:
+            logger.error("Nepodarilo sa zapnúť HTTPS: %s", exc)
+            raise SystemExit(1)
+
     print("=" * 50)
     print("  ProjectTracker Server")
     print("=" * 50)
-    print(f"  Desktop: http://localhost:{PORT}/desktop/")
-    print(f"  Mobile:  http://localhost:{PORT}/mobile/")
-    print(f"  Tailscale: http://{get_ip()}:{PORT}/")
+    print(f"  Desktop: {SERVER_SCHEME}://localhost:{PORT}/desktop/")
+    print(f"  Mobile:  {SERVER_SCHEME}://localhost:{PORT}/mobile/")
+    print(f"  LAN:     {build_sync_base_url()}/")
+    if args.https:
+        print(f"  TLS cert: {os.path.abspath(args.certfile)}")
+        print(f"  TLS key:  {os.path.abspath(args.keyfile)}")
+    else:
+        print("  Poznamka: iPhone PWA sync vyzaduje HTTPS (--https).")
     print("=" * 50)
     print("  Stlac Ctrl+C pre zastavenie")
     print("=" * 50)

@@ -6,7 +6,7 @@ const App = {
 
     init() {
         // Počká na prvú synchronizáciu pred renderovaním
-        const syncPromise = Store.initSync();
+        const syncPromise = Store.initSync({ runtimeMode: 'mobile' });
         
         // Inicializuj status indikátor, event listeners a gestures HNEĎ
         this.setupStatusIndicator();
@@ -20,14 +20,10 @@ const App = {
         }
         
         // Teraz počka na prvú synchronizáciu
+        this.navigate('dashboard');
+
         if (syncPromise && syncPromise.then) {
-            syncPromise.then(() => {
-                this.navigate('dashboard');
-            }).catch(() => {
-                this.navigate('dashboard');
-            });
-        } else {
-            this.navigate('dashboard');
+            syncPromise.then(() => this.refresh()).catch(() => {});
         }
     },
     
@@ -150,21 +146,19 @@ const App = {
     },
 
     setupStatusIndicator() {
-        const el = document.getElementById('connectionStatus');
+        const dot = document.getElementById('statusDot');
+        const text = document.getElementById('statusText');
         const syncIcon = document.getElementById('syncIcon');
         const lastSyncEl = document.getElementById('lastSync');
         let lastSyncTime = null;
         
-        console.log("setupStatusIndicator init, el:", el, "navigator.onLine:", navigator.onLine);
-        
         const updateStatus = (online) => {
-            console.log("updateStatus called with:", online);
             if (online) {
-                el.style.color = '#10b981';
-                el.innerHTML = '<span style="display: block; width: 6px; height: 6px; background: #10b981; border-radius: 50%;"></span> Online';
+                if (dot) dot.style.background = '#10b981';
+                if (text) text.textContent = 'Online';
             } else {
-                el.style.color = '#ef4444';
-                el.innerHTML = '<span style="display: block; width: 6px; height: 6px; background: #ef4444; border-radius: 50%;"></span> Offline';
+                if (dot) dot.style.background = '#ef4444';
+                if (text) text.textContent = 'Offline';
             }
         };
         
@@ -177,34 +171,31 @@ const App = {
         };
 
         window.addEventListener('syncSuccess', () => {
-            console.log("syncSuccess event!");
             updateStatus(true);
             lastSyncTime = Date.now();
-            lastSyncEl.textContent = formatLastSync();
-            if (syncIcon) {
-                syncIcon.classList.remove('fa-spin');
-            }
+            if (lastSyncEl) lastSyncEl.textContent = `OK - ${formatLastSync()}`;
+            const icon = document.getElementById('syncIcon');
+            if (icon) icon.classList.remove('fa-spin');
         });
         
-        window.addEventListener('syncError', () => {
-            console.log("syncError event!");
+        window.addEventListener('syncError', (event) => {
             updateStatus(false);
-            if (syncIcon) {
-                syncIcon.classList.remove('fa-spin');
+            if (event && event.detail && event.detail.reason && lastSyncEl) {
+                lastSyncEl.textContent = event.detail.reason;
             }
+            const icon = document.getElementById('syncIcon');
+            if (icon) icon.classList.remove('fa-spin');
         });
         
         window.addEventListener('syncStart', () => {
-            console.log("syncStart event!");
-            if (syncIcon) {
-                syncIcon.classList.add('fa-spin');
-            }
+            const icon = document.getElementById('syncIcon');
+            if (icon) icon.classList.add('fa-spin');
         });
         
         // Update last sync time periodically
         setInterval(() => {
             if (lastSyncTime) {
-                lastSyncEl.textContent = formatLastSync();
+                lastSyncEl.textContent = `OK - ${formatLastSync()}`;
             }
         }, 60000);
         
@@ -560,6 +551,28 @@ const App = {
     },
 
     // --- ACTIONS ---
+    async syncNow() {
+        let syncBaseUrl = Store.getSyncBaseUrl();
+
+        if (!syncBaseUrl) {
+            // Zmeníme predvolenú hodnotu na http:// pre lokálne testovanie
+            const defaultUrl = Store.getStoredSyncBaseUrl() || 'http://';
+            const input = prompt('Zadajte sync URL servera (napr. http://100.75.40.82:8005):', defaultUrl);
+            if (input === null) return;
+
+            // Druhý parameter 'true' povolí HTTP adresy
+            if (!Store.setSyncBaseUrl(input, true)) {
+                alert('Neplatná URL adresa.');
+                return;
+            }
+            syncBaseUrl = Store.getSyncBaseUrl();
+        }
+
+        const result = await Store.manualSyncNow();
+        if (!result.success && result.reason) {
+            alert(`Synchronizacia zlyhala: ${result.reason}`);
+        }
+    },
 
     // --- SHEET UI ---
     showSheet() {

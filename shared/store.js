@@ -1,14 +1,21 @@
 const Store = {
     KEYS: {
         PROJECTS: 'projecttracker_projects',
-        SETTINGS: 'projecttracker_settings'
+        SETTINGS: 'projecttracker_settings',
+        PENDING_SYNC: 'projecttracker_pending_sync',
+        SYNC_BASE_URL: 'projecttracker_sync_base_url'
     },
-    
-    serverUrl: '/api/data',
+
+    runtimeMode: 'desktop',
     syncInterval: null,
-    lastServerTimestamp: 0,
+    syncIntervalMs: 2000,
+    requestTimeoutMs: 3000,
     isSyncing: false,
     pendingSync: false,
+    listenersBound: false,
+    syncBaseUrl: '',
+    lastServerTimestamp: 0,
+    lastSyncErrorReason: '',
 
     generateId() {
         return Date.now().toString(36) + Math.random().toString(36).substr(2);
@@ -28,13 +35,14 @@ const Store = {
         try {
             const newData = JSON.stringify(projects);
             const currentData = localStorage.getItem(this.KEYS.PROJECTS);
-            
             if (currentData === newData) return;
-            
+
             localStorage.setItem(this.KEYS.PROJECTS, newData);
-            
-            if (navigator.onLine) {
-                this.pushData(true);
+            this.setPendingSync(true);
+
+            // Desktop keeps auto sync; mobile uses manual sync button.
+            if (this.runtimeMode === 'desktop' && navigator.onLine) {
+                this.triggerSync();
             }
         } catch (e) {
             console.error("Error saving projects:", e);
@@ -44,145 +52,323 @@ const Store = {
     getSettings() {
         try {
             const data = localStorage.getItem(this.KEYS.SETTINGS);
-            return data ? JSON.parse(data) : { currency: '€', theme: 'light' };
+            return data ? JSON.parse(data) : { currency: 'EUR', theme: 'light' };
         } catch (e) {
             console.error("Error parsing settings:", e);
-            return { currency: '€', theme: 'light' };
+            return { currency: 'EUR', theme: 'light' };
         }
     },
 
-    // --- SERVER SYNC ---
+    getPendingSync() {
+        try {
+            return localStorage.getItem(this.KEYS.PENDING_SYNC) === '1';
+        } catch (e) {
+            console.error("Error reading pending sync flag:", e);
+            return this.pendingSync;
+        }
+    },
 
-    initSync() {
-        if (this.syncInterval) clearInterval(this.syncInterval);
-        
-        // Online/offline handling
-        window.addEventListener('online', () => {
-            console.log("Back online, triggering sync...");
-            this.triggerSync();
-        });
-        
-        window.addEventListener('offline', () => {
-            console.log("Gone offline, data will sync when back online");
-            // NEUTIEKAJ syncError tu - nec kontrolluje sa online status cez listeners
-        });
-        
-        // Pravidelny polling (kazdych 2 sekundy) - VŽDY sa musí nastaviť
-        this.syncInterval = setInterval(() => {
-            if (navigator.onLine && !this.isSyncing) {
-                this.fetchData();
+    setPendingSync(value) {
+        this.pendingSync = !!value;
+        try {
+            if (this.pendingSync) localStorage.setItem(this.KEYS.PENDING_SYNC, '1');
+            else localStorage.removeItem(this.KEYS.PENDING_SYNC);
+        } catch (e) {
+            console.error("Error writing pending sync flag:", e);
+        }
+    },
+
+    getStoredSyncBaseUrl() {
+        try {
+            return localStorage.getItem(this.KEYS.SYNC_BASE_URL) || '';
+        } catch (e) {
+            console.error("Error reading sync base URL:", e);
+            return '';
+        }
+    },
+
+    getSyncBaseUrl() {
+        const current = this.syncBaseUrl || this.getStoredSyncBaseUrl();
+        // Zmenené na true, aby sme akceptovali HTTP aj pri načítaní uloženej adresy
+        const normalized = this.normalizeSyncBaseUrl(current, true);
+        if (!normalized) return '';
+        this.syncBaseUrl = normalized;
+        return normalized;
+    },
+
+    normalizeSyncBaseUrl(value, allowHttp = false) {
+        if (!value) return '';
+        try {
+            const url = new URL(String(value).trim());
+            if (url.protocol !== 'https:' && !(allowHttp && url.protocol === 'http:')) {
+                return '';
             }
-        }, 2000);
-        
-        // Prve stiahnutie - vratime promise ak je online
-        if (navigator.onLine) {
-            return this.fetchData();
-        } else {
-            return Promise.resolve();
+            const pathname = (url.pathname || '').replace(/\/+$/, '');
+            return `${url.protocol}//${url.host}${pathname}`;
+        } catch (e) {
+            return '';
         }
-    },
-    
-    triggerSync() {
-        if (!navigator.onLine) {
-            console.log("Offline, sync queued");
-            this.pendingSync = true;
-            return;
-        }
-        this.fetchData();
     },
 
-    async fetchData() {
-        if (this.isSyncing) return Promise.resolve();
-        
-        console.log("fetchData() starting...");
+    setSyncBaseUrl(value, persist = true) {
+        // Zmenené na true, aby sme povolili HTTP v lokálnej sieti
+        const normalized = this.normalizeSyncBaseUrl(value, true);
+        if (!normalized) return false;
+        this.syncBaseUrl = normalized;
+        if (persist) {
+            try {
+                localStorage.setItem(this.KEYS.SYNC_BASE_URL, normalized);
+            } catch (e) {
+                console.error("Error persisting sync base URL:", e);
+            }
+        }
+        return true;
+    },
+
+    bootstrapSyncBaseFromLocation() {
+        if (typeof window === 'undefined') return;
+
+        let appliedFromQuery = false;
+        try {
+            const currentUrl = new URL(window.location.href);
+            const syncParam = currentUrl.searchParams.get('sync');
+            if (syncParam) {
+                // Zmenené na true, aby sme povolili HTTP z URL parametra
+                appliedFromQuery = this.setSyncBaseUrl(syncParam, true);
+                currentUrl.searchParams.delete('sync');
+                if (window.history && window.history.replaceState) {
+                    const cleanUrl = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
+                    window.history.replaceState({}, document.title, cleanUrl);
+                }
+            }
+        } catch (e) {
+            console.error("Failed to bootstrap sync base from URL:", e);
+        }
+
+        if (!appliedFromQuery) {
+            const stored = this.getStoredSyncBaseUrl();
+            // Zmenené na true pre povolenie uloženej HTTP adresy
+            const normalizedStored = this.normalizeSyncBaseUrl(stored, true);
+            if (normalizedStored) {
+                this.syncBaseUrl = normalizedStored;
+            } else if (stored) {
+                try {
+                    localStorage.removeItem(this.KEYS.SYNC_BASE_URL);
+                } catch (e) {
+                    console.error("Error clearing invalid sync base URL:", e);
+                }
+            }
+        }
+    },
+
+    resolveApiUrl(path) {
+        const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+        if (this.runtimeMode === 'mobile' && this.syncBaseUrl) {
+            return `${this.syncBaseUrl}${normalizedPath}`;
+        }
+        return normalizedPath;
+    },
+
+    setLastSyncError(reason = '') {
+        this.lastSyncErrorReason = reason || '';
+    },
+
+    emitSyncError(reason = '') {
+        this.setLastSyncError(reason);
+        window.dispatchEvent(new CustomEvent('syncError', { detail: { reason } }));
+    },
+
+    initSync(options = {}) {
+        if (this.syncInterval) clearInterval(this.syncInterval);
+        this.syncInterval = null;
+
+        this.runtimeMode = options.runtimeMode || this.runtimeMode || 'desktop';
+        this.pendingSync = this.getPendingSync();
+
+        if (this.runtimeMode === 'mobile') {
+            this.bootstrapSyncBaseFromLocation();
+        } else {
+            this.syncBaseUrl = '';
+        }
+
+        if (!this.listenersBound) {
+            window.addEventListener('online', () => {
+                if (this.runtimeMode === 'desktop') this.triggerSync();
+            });
+            window.addEventListener('offline', () => {
+                console.log("Offline mode active");
+            });
+            this.listenersBound = true;
+        }
+
+        if (this.runtimeMode === 'desktop') {
+            this.syncInterval = setInterval(() => {
+                if (navigator.onLine && !this.isSyncing) this.triggerSync();
+            }, this.syncIntervalMs);
+            if (navigator.onLine) return this.triggerSync();
+        }
+        return Promise.resolve();
+    },
+
+    triggerSync() {
+        return this.manualSyncNow();
+    },
+
+    async fetchWithTimeout(url, options = {}, timeoutMs = this.requestTimeoutMs) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            return await fetch(url, { ...options, signal: controller.signal });
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    },
+
+    getManualSyncPrecheckError() {
+        if (!navigator.onLine) return 'Zariadenie je offline.';
+        if (this.runtimeMode === 'mobile') {
+            if (!this.syncBaseUrl) return 'Sync endpoint nie je nastaveny.';
+            // Dočasne vypnuté pre testovanie cez lokálnu sieť bez HTTPS
+            // if (this.syncBaseUrl.startsWith('http://')) {
+            //     return 'Sync endpoint musi byt HTTPS.';
+            // }
+        }
+        return '';
+    },
+
+    normalizeSyncError(error) {
+        const rawMessage = (error && error.message) ? String(error.message) : String(error || '');
+        const lower = rawMessage.toLowerCase();
+
+        if (error && error.name === 'AbortError') {
+            return 'Server neodpoveda (timeout).';
+        }
+        if (lower.includes('ssl') || lower.includes('tls') || lower.includes('cert')) {
+            return 'HTTPS/certifikat problem pri pripojeni.';
+        }
+        if (lower.includes('failed to fetch') || lower.includes('networkerror') || lower.includes('load failed')) {
+            if (this.runtimeMode === 'mobile' && this.syncBaseUrl) {
+                return 'Server je nedostupny alebo je problem s HTTPS certifikatom.';
+            }
+            return 'Server je nedostupny.';
+        }
+        return rawMessage || 'Synchronizacia zlyhala.';
+    },
+
+    async manualSyncNow() {
+        if (this.isSyncing) {
+            return { success: false, reason: 'Synchronizacia uz prebieha.' };
+        }
+
+        const precheckReason = this.getManualSyncPrecheckError();
+        if (precheckReason) {
+            this.emitSyncError(precheckReason);
+            return { success: false, reason: precheckReason };
+        }
+
         this.isSyncing = true;
         window.dispatchEvent(new CustomEvent('syncStart'));
-        
+
         try {
-            console.log("Fetching from:", this.serverUrl);
-            const response = await fetch(this.serverUrl);
-            console.log("Fetch response status:", response.status, response.ok);
-            if (!response.ok) throw new Error("Server error: " + response.status);
-            
+            // 1) Health check
+            const infoUrl = this.resolveApiUrl('/api/info');
+            const infoResp = await this.fetchWithTimeout(infoUrl, {}, 2500);
+            if (!infoResp.ok) throw new Error(`Server info error: ${infoResp.status}`);
+            await infoResp.json();
+
+            // 2) Push pending local changes first
+            if (this.getPendingSync()) {
+                const pushed = await this.pushData(true);
+                if (!pushed) throw new Error('Nepodarilo sa odoslat lokalne zmeny.');
+            }
+
+            // 3) Pull + merge
+            const dataUrl = this.resolveApiUrl('/api/data');
+            const response = await this.fetchWithTimeout(dataUrl);
+            if (!response.ok) throw new Error(`Server data error: ${response.status}`);
+
             const serverData = await response.json();
-            console.log("Fetch success, server timestamp:", serverData.timestamp);
-            
-            // Item-level merge
             const localProjects = this.getProjects();
             const serverProjects = serverData.projects || [];
             const { merged: mergedProjects, changedProjectIds } = this.mergeProjectsWithDiff(localProjects, serverProjects);
-            
-            // Uložíme zmiešané dáta iba ak sa niečo zmenilo
+            const shouldPushProjects = JSON.stringify(mergedProjects) !== JSON.stringify(serverProjects);
+
             const newData = JSON.stringify(mergedProjects);
             const currentData = localStorage.getItem(this.KEYS.PROJECTS);
-            
             if (currentData !== newData) {
                 localStorage.setItem(this.KEYS.PROJECTS, newData);
-                
+
                 if (changedProjectIds.length > 0) {
                     changedProjectIds.forEach(projectId => {
-                        window.dispatchEvent(new CustomEvent('projectDataChanged', { 
-                            detail: { projectId } 
+                        window.dispatchEvent(new CustomEvent('projectDataChanged', {
+                            detail: { projectId }
                         }));
                     });
                 }
-                
                 window.dispatchEvent(new CustomEvent('projectsListChanged'));
             }
-            
-            // Aktualizujeme settings ak sú novšie
+
+            const localSettings = this.getSettings();
+            const localSettingsTs = Number(localSettings._updatedAt || 0);
+            const hasLocalSettings = !!localStorage.getItem(this.KEYS.SETTINGS);
+            const serverSettingsTs = Number((serverData.settings && serverData.settings._updatedAt) || 0);
+            let shouldPushSettings = false;
+
             if (serverData.settings) {
-                const localSettingsTs = this.getSettings()._updatedAt || 0;
-                const serverSettingsTs = serverData.settings._updatedAt || 0;
                 if (serverSettingsTs > localSettingsTs) {
                     localStorage.setItem(this.KEYS.SETTINGS, JSON.stringify(serverData.settings));
+                } else if (localSettingsTs > serverSettingsTs) {
+                    shouldPushSettings = true;
                 }
+            } else if (hasLocalSettings) {
+                shouldPushSettings = true;
             }
-            
-            console.log("Sync SUCCESS! Emitting syncSuccess event");
+
+            // 4) Final push if local won merge
+            if (shouldPushProjects || shouldPushSettings || this.getPendingSync()) {
+                const pushedAgain = await this.pushData(true);
+                if (!pushedAgain) throw new Error('Nepodarilo sa dokoncit finalny push.');
+            }
+
+            this.setLastSyncError('');
             window.dispatchEvent(new CustomEvent('syncSuccess'));
-            
+            return { success: true };
         } catch (e) {
-            console.error("Sync FAILED:", e.message, e);
-            window.dispatchEvent(new CustomEvent('syncError'));
+            const reason = this.normalizeSyncError(e);
+            this.emitSyncError(reason);
+            console.error("Manual sync failed:", e);
+            return { success: false, reason };
         } finally {
             this.isSyncing = false;
         }
     },
-    
+
     mergeProjectsWithDiff(localProjects, serverProjects) {
         const merged = [];
         const changedProjectIds = [];
-        
+
         const localMap = new Map(localProjects.map(p => [p.id, p]));
         const serverMap = new Map(serverProjects.map(p => [p.id, p]));
-        
         const allIds = new Set([...localMap.keys(), ...serverMap.keys()]);
-        
+
         allIds.forEach(id => {
             const local = localMap.get(id);
             const server = serverMap.get(id);
-            
+
             if (!local) {
-                // Nový projekt zo servera
                 merged.push({ ...server, _localVersion: false });
                 changedProjectIds.push(id);
                 return;
             }
             if (!server) {
-                // Projekt len lokálne (napr. vytvorený v teréne)
                 merged.push({ ...local, _localVersion: true });
                 return;
             }
 
-            // --- DEEP MERGE EXISTUJÚCEHO PROJEKTU ---
             const localTs = local.updatedAt || 0;
             const serverTs = server.updatedAt || 0;
-            
-            // Základné atribúty (názov, rozpočet) z novšej verzie
-            let finalProject = serverTs > localTs ? { ...server } : { ...local };
-            
-            // 1. Zlúčenie fáz (Phases) - každá fáza má vlastné ID
+            const finalProject = serverTs > localTs ? { ...server } : { ...local };
+
             const phaseMap = new Map();
             const allPhases = [...(local.phases || []), ...(server.phases || [])];
             allPhases.forEach(ph => {
@@ -190,42 +376,32 @@ const Store = {
                 if (!existing) {
                     phaseMap.set(ph.id, { ...ph });
                 } else {
-                    // Ak fáza existuje na oboch, zlúčime jej atribúty a HLAVNE úlohy
                     const newerPhase = (ph.updatedAt || 0) > (existing.updatedAt || 0) ? ph : existing;
                     const mergedPhase = { ...newerPhase };
-                    
-                    // Zlúčenie úloh v rámci fázy - konzistentné rozdelenie konfliktov
+
                     const taskMap = new Map();
                     const allTasks = [...(existing.tasks || []), ...(ph.tasks || [])];
                     allTasks.forEach(t => {
                         const exTask = taskMap.get(t.id);
                         const tTime = t.updatedAt || 0;
                         const exTime = exTask ? (exTask.updatedAt || 0) : 0;
-                        
+
                         if (!exTask) {
                             taskMap.set(t.id, t);
                         } else if (tTime > exTime) {
-                            // Novšia verzia
                             taskMap.set(t.id, t);
                         } else if (tTime === exTime) {
-                            // Zhodný timestamp - kritériá v poradí:
-                            // 1. Väčšina vyhráva (ak sú obe verzie zhodné v completed, je to remíza)
-                            // 2. Pri remíze použijeme ID hash pre konzistentné rozdelenie
                             if (t.completed !== exTask.completed) {
-                                // Pri konflikte completed stavu preferujeme "false" (bezpecnejsie).
                                 taskMap.set(t.id, t.completed === false ? t : exTask);
                             } else if (!!t.deleted !== !!exTask.deleted) {
-                                // Pri konflikte deleted flagu preferujeme nezmazanu verziu.
                                 taskMap.set(t.id, t.deleted ? exTask : t);
                             } else {
                                 taskMap.set(t.id, exTask);
                             }
                         }
-                        // Ak tTime < exTime, ponecháme exTask (staršia verzia)
                     });
                     mergedPhase.tasks = Array.from(taskMap.values());
-                    
-                    // Prepočítame progress ak sú tam úlohy (iba active)
+
                     const activeTasks = mergedPhase.tasks.filter(t => !t.deleted);
                     if (activeTasks.length > 0) {
                         const completed = activeTasks.filter(t => t.completed).length;
@@ -239,39 +415,31 @@ const Store = {
             });
             finalProject.phases = Array.from(phaseMap.values());
 
-            // 2. Zlúčenie transakcií (Transactions) - Unikátne ID, spájame všetko
             const transMap = new Map();
             const allTrans = [...(local.transactions || []), ...(server.transactions || [])];
             allTrans.forEach(t => {
                 const existing = transMap.get(t.id);
-                // Ak existuje na oboch, ponecháme tú novšiu (pre prípad budúcich editácií)
                 if (!existing || (t.updatedAt || 0) > (existing.updatedAt || 0)) {
                     transMap.set(t.id, t);
                 }
             });
             finalProject.transactions = Array.from(transMap.values());
-
-            // 3. Rekalculácia updatedAt pre projekt
-            // Projekt má časovú pečiatku najnovšej zmeny spomedzi všetkých jeho častí
             finalProject.updatedAt = Math.max(localTs, serverTs);
-            
-            // Označíme ako zmenený, ak sa výsledný projekt líši od nášho lokálneho
-            // (Použijeme JSON stringify pre hlboké porovnanie)
+
             if (JSON.stringify(finalProject) !== JSON.stringify(local)) {
                 changedProjectIds.push(id);
             }
-            
             merged.push(finalProject);
         });
-        
+
         return { merged, changedProjectIds };
     },
 
     async pushData(immediate = false) {
         const projects = this.getProjects();
-        const settings = this.getSettings();
-        settings._updatedAt = Date.now();
-        
+        const settings = { ...this.getSettings() };
+        if (!settings._updatedAt) settings._updatedAt = Date.now();
+
         const payload = {
             projects,
             settings,
@@ -279,42 +447,78 @@ const Store = {
         };
 
         try {
-            const response = await fetch('/api/data', {
+            const dataUrl = this.resolveApiUrl('/api/data');
+            const response = await this.fetchWithTimeout(dataUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-            
-            if (response.ok) {
-                const result = await response.json();
-                if (result.timestamp) {
-                    this.lastServerTimestamp = result.timestamp;
-                }
-                if (immediate) {
-                    console.log("Immediate sync completed.");
-                } else {
-                    console.log("Data pushed to server successfully.");
-                }
-            }
+
+            if (!response.ok) throw new Error("Server error: " + response.status);
+            const result = await response.json();
+            if (result.timestamp) this.lastServerTimestamp = result.timestamp;
+
+            this.setPendingSync(false);
+            if (immediate) console.log("Sync push completed.");
+            return true;
         } catch (e) {
+            this.setPendingSync(true);
             console.error("Push failed:", e);
+            return false;
         }
     },
 
     shutdownServer() {
-        // Poziadame server o vypnutie a potom zavrieme okno
-        fetch('/api/shutdown', { method: 'POST' })
+        const shutdownUrl = this.resolveApiUrl('/api/shutdown');
+        this.fetchWithTimeout(shutdownUrl, { method: 'POST' }, 2500)
             .then(() => {
-                alert("Server sa vypína. Aplikáciu môžete zatvoriť.");
+                alert("Server sa vypina. Aplikaciu mozete zatvorit.");
                 window.close();
             })
-            .catch(e => {
-                alert("Chyba pri vypínaní servera.");
+            .catch(() => {
+                alert("Chyba pri vypinani servera.");
                 window.close();
             });
+    },
+
+    exportData() {
+        return JSON.stringify({
+            projects: this.getProjects(),
+            settings: this.getSettings(),
+            timestamp: Date.now()
+        });
+    },
+
+    mergeData(data) {
+        try {
+            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+            const incomingProjects = (parsed && parsed.projects) || [];
+            const incomingSettings = (parsed && parsed.settings) || null;
+
+            const localProjects = this.getProjects();
+            const { merged, changedProjectIds } = this.mergeProjectsWithDiff(localProjects, incomingProjects);
+            localStorage.setItem(this.KEYS.PROJECTS, JSON.stringify(merged));
+
+            if (incomingSettings) {
+                const localSettings = this.getSettings();
+                const localTs = Number(localSettings._updatedAt || 0);
+                const incomingTs = Number(incomingSettings._updatedAt || 0);
+                if (incomingTs >= localTs) {
+                    localStorage.setItem(this.KEYS.SETTINGS, JSON.stringify(incomingSettings));
+                }
+            }
+
+            this.setPendingSync(true);
+            if (navigator.onLine && this.runtimeMode === 'desktop') {
+                this.triggerSync();
+            }
+
+            return { success: true, newItems: changedProjectIds.length };
+        } catch (e) {
+            return { success: false, error: e.message || String(e), newItems: 0 };
+        }
     }
 };
 
-// Export pre Node.js aj Browser
 if (typeof module !== 'undefined') module.exports = Store;
 else window.Store = Store;
