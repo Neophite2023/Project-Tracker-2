@@ -58,19 +58,37 @@ const App = {
         if (!project) return;
         
         const stats = Projects.calculateStats(project);
-        card.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+        card.innerHTML = this._generateCardHTML(project, stats);
+    },
+
+    _generateCardHTML(p, stats) {
+        const remainingColor = stats.remaining < 0 ? '#ef4444' : '#10b981';
+        return `
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; border-bottom: 1px solid #f3f4f6; padding-bottom: 0.75rem;">
                 <div>
-                    <div class="m-project-title">${project.name}</div>
-                    <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">${project.type.toUpperCase()}</div>
+                    <div class="m-project-title">${p.name}</div>
+                    <div style="font-size: 0.7rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">${p.type}</div>
                 </div>
-                <span class="m-badge">${stats.progress}%</span>
+                <div style="text-align: right;">
+                    <span class="m-badge">${stats.progress}% Hotovo</span>
+                </div>
             </div>
-            <div style="font-size: 0.9rem; font-weight: 700;">
-                ${stats.totalSpent.toLocaleString()} € <span style="font-weight: 400; color: var(--text-muted);">z ${stats.totalBudget.toLocaleString()} €</span>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; text-align: center;">
+                <div>
+                    <div style="font-size: 0.65rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; margin-bottom: 0.25rem;">Minuté</div>
+                    <div style="font-size: 0.9rem; font-weight: 800;">${Math.round(stats.totalSpent).toLocaleString()} €</div>
+                </div>
+                <div style="border-left: 1px solid #f3f4f6; border-right: 1px solid #f3f4f6;">
+                    <div style="font-size: 0.65rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; margin-bottom: 0.25rem;">Zostáva</div>
+                    <div style="font-size: 0.9rem; font-weight: 800; color: ${remainingColor};">${Math.round(stats.remaining).toLocaleString()} €</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.65rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; margin-bottom: 0.25rem;">Limit</div>
+                    <div style="font-size: 0.9rem; font-weight: 800;">${Math.round(stats.totalBudget).toLocaleString()} €</div>
+                </div>
             </div>
         `;
-
     },
 
     setupSheetGestures() {
@@ -245,20 +263,9 @@ const App = {
     // --- DASHBOARD ---
     renderDashboard(container) {
         const projects = Projects.getAll();
-        const stats = projects.map(p => Projects.calculateStats(p));
-        const totalBudget = stats.reduce((sum, s) => sum + s.totalBudget, 0);
-        const totalSpent = stats.reduce((sum, s) => sum + s.totalSpent, 0);
 
         container.innerHTML = `
-            <div class="m-card" style="background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: white;">
-                <div style="opacity: 0.8; font-size: 0.8rem; font-weight: 600; text-transform: uppercase;">Celkový rozpočet</div>
-                <div style="font-size: 2rem; font-weight: 800; margin-bottom: 1rem;">${totalSpent.toLocaleString()} / ${totalBudget.toLocaleString()} €</div>
-                <div style="height: 8px; background: rgba(255,255,255,0.2); border-radius: 4px; overflow: hidden;">
-                    <div style="width: ${totalBudget > 0 ? (totalSpent/totalBudget)*100 : 0}%; height: 100%; background: white;"></div>
-                </div>
-            </div>
-
-            <h3 style="margin: 1.5rem 0 1rem; font-weight: 800;">Aktuálne projekty</h3>
+            <h3 style="margin: 1rem 0 1rem; font-weight: 800;">Aktuálne projekty</h3>
             ${projects.length ? projects.map(p => this.createProjectCard(p)).join('') : '<p style="color:var(--text-muted);text-align:center;padding:2rem;">Žiadne projekty.</p>'}
         `;
     },
@@ -267,16 +274,7 @@ const App = {
         const stats = Projects.calculateStats(p);
         return `
             <div class="m-card" onclick="App.showProjectDetail('${p.id}')" data-project-id="${p.id}">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
-                    <div>
-                        <div class="m-project-title">${p.name}</div>
-                        <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">${p.type.toUpperCase()}</div>
-                    </div>
-                    <span class="m-badge">${stats.progress}%</span>
-                </div>
-                <div style="font-size: 0.9rem; font-weight: 700;">
-                    ${stats.totalSpent.toLocaleString()} € <span style="font-weight: 400; color: var(--text-muted);">z ${stats.totalBudget.toLocaleString()} €</span>
-                </div>
+                ${this._generateCardHTML(p, stats)}
             </div>
         `;
     },
