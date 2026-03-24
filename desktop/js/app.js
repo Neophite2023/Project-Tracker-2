@@ -88,19 +88,7 @@ const App = {
         const card = document.querySelector(`[data-project-id="${projectId}"]`);
         if (card) {
             const stats = Projects.calculateStats(project);
-            card.innerHTML = `
-                <div style="display: flex; justify-content: space-between; margin-bottom: 1.25rem;">
-                    <h3 style="font-size: 1.15rem; margin: 0; font-weight: 700;">${project.name}</h3>
-                    <span class="badge">${project.type}</span>
-                </div>
-                <div style="height: 10px; background: #f3f4f6; border-radius: 5px; overflow: hidden; margin-bottom: 0.75rem;">
-                    <div style="width: ${stats.progress}%; height: 100%; background: var(--primary); transition: width 0.5s;"></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-size: 0.875rem; color: var(--text-muted); font-weight: 500;">
-                    <span>${stats.progress}% hotovo</span>
-                    <span style="${stats.isOverBudget ? 'color: #ef4444; font-weight: 700;' : ''}">${stats.totalSpent.toLocaleString()} €</span>
-                </div>
-            `;
+            card.innerHTML = this._generateProjectCardHTML(project, stats);
         }
     },
     
@@ -109,21 +97,54 @@ const App = {
         if (!container) return;
         
         const projects = Projects.getAll();
-        container.innerHTML = projects.map(p => `
-            <div class="card shadow" style="padding: 1.5rem; cursor: pointer; transition: 0.3s;" onclick="App.openProject('${p.id}')" data-project-id="${p.id}">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 1.25rem;">
+        container.innerHTML = projects.map(p => this.createProjectCard(p)).join('');
+    },
+    
+    _generateProjectCardHTML(p, stats) {
+        const remainingColor = stats.remaining < 0 ? '#ef4444' : '#10b981';
+        return `
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; border-bottom: 1px solid #f3f4f6; padding-bottom: 1rem;">
+                <div>
                     <h3 style="font-size: 1.15rem; margin: 0; font-weight: 700;">${p.name}</h3>
-                    <span class="badge">${p.type}</span>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.25rem;">${p.type}</div>
                 </div>
-                <div style="height: 10px; background: #f3f4f6; border-radius: 5px; overflow: hidden; margin-bottom: 0.75rem;">
-                    <div style="width: ${Projects.calculateStats(p).progress}%; height: 100%; background: var(--primary); transition: width 0.5s;"></div>
+                <span class="badge">${stats.progress}% hotovo</span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; text-align: center;">
+                <div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; margin-bottom: 0.35rem;">Minuté</div>
+                    <div style="font-size: 1.1rem; font-weight: 800;">${Math.round(stats.totalSpent).toLocaleString()} €</div>
                 </div>
-                <div style="display: flex; justify-content: space-between; font-size: 0.875rem; color: var(--text-muted); font-weight: 500;">
-                    <span>${Projects.calculateStats(p).progress}% hotovo</span>
-                    <span style="${Projects.calculateStats(p).isOverBudget ? 'color: #ef4444; font-weight: 700;' : ''}">${Projects.calculateStats(p).totalSpent.toLocaleString()} €</span>
+                <div style="border-left: 1px solid #f3f4f6; border-right: 1px solid #f3f4f6;">
+                    <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; margin-bottom: 0.35rem;">Zostáva</div>
+                    <div style="font-size: 1.1rem; font-weight: 800; color: ${remainingColor};">${Math.round(stats.remaining).toLocaleString()} €</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; margin-bottom: 0.35rem;">Limit</div>
+                    <div style="font-size: 1.1rem; font-weight: 800;">${Math.round(stats.totalBudget).toLocaleString()} €</div>
                 </div>
             </div>
-        `).join('');
+        `;
+    },
+
+    _renderCategoryItem(icon, label, amount, total) {
+        const percent = total > 0 ? Math.round((amount / total) * 100) : 0;
+        return `
+            <div style="background: #f9fafb; padding: 1rem; border-radius: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                    <div style="font-size: 1.5rem;">${icon}</div>
+                    <div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">${label}</div>
+                        <div style="font-size: 1.1rem; font-weight: 800;">${Math.round(amount).toLocaleString()} €</div>
+                    </div>
+                </div>
+                <div style="height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden;">
+                    <div style="width: ${percent}%; height: 100%; background: var(--primary);"></div>
+                </div>
+                <div style="text-align: right; font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem; font-weight: 600;">${percent}% z celku</div>
+            </div>
+        `;
     },
     
     refreshProjectDetail() {
@@ -363,150 +384,83 @@ const App = {
     },
 
     renderDashboard(container) {
-        console.log("renderDashboard called");
         const projects = Projects.getAll();
-        console.log("Projects found:", projects.length);
-        const stats = projects.map(p => ({
-            name: p.name,
-            spent: Projects.calculateStats(p).totalSpent,
-            budget: p.budget
-        }));
+        const stats = projects.map(p => Projects.calculateStats(p));
 
-        const totalBudget = stats.reduce((sum, s) => sum + s.budget, 0);
-        const totalSpent = stats.reduce((sum, s) => sum + s.spent, 0);
+        const totalSpent = stats.reduce((sum, s) => sum + s.totalSpent, 0);
+
+        const categoryStats = { material: 0, labor: 0, transport: 0, other: 0 };
+        const alerts = [];
+
+        stats.forEach((s, idx) => {
+            // Sčítame kategórie
+            categoryStats.material += s.categoryStats.material;
+            categoryStats.labor += s.categoryStats.labor;
+            categoryStats.transport += s.categoryStats.transport;
+            categoryStats.other += s.categoryStats.other;
+
+            // Kontrola prečerpania projektov
+            if (s.remaining < 0) {
+                alerts.push({
+                    title: projects[idx].name,
+                    subtitle: 'Celý projekt je nad limitom',
+                    diff: Math.abs(Math.round(s.remaining))
+                });
+            }
+
+            // Kontrola fáz
+            s.phaseStats.forEach(ph => {
+                if (ph.spent > ph.budget) {
+                    alerts.push({
+                        title: ph.name,
+                        subtitle: `V projekte ${projects[idx].name}`,
+                        diff: Math.abs(Math.round(ph.spent - ph.budget))
+                    });
+                }
+            });
+        });
 
         container.innerHTML = `
-            <div class="stats-row" style="display: flex; gap: 1.5rem; margin-bottom: 2.5rem;">
-                <div class="card shadow" style="background: #fff; padding: 1.5rem; border-radius: 1rem; flex: 1; border-left: 5px solid var(--primary);">
-                    <div style="color: var(--text-muted); font-size: 0.875rem; font-weight: 600;">Celkový rozpočet</div>
-                    <div style="font-size: 1.75rem; font-weight: 800; color: var(--primary);">${totalBudget.toLocaleString()} €</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 2.5rem; margin-top: 1rem;">
+                
+                <!-- Karta 1: Rozpad nákladov -->
+                <div class="card shadow" style="padding: 2rem;">
+                    <h3 style="margin-bottom: 1.5rem; font-weight: 800;">Rozpad nákladov</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        ${this._renderCategoryItem('🧱', 'Materiál', categoryStats.material, totalSpent)}
+                        ${this._renderCategoryItem('🛠️', 'Práca', categoryStats.labor, totalSpent)}
+                        ${this._renderCategoryItem('🚚', 'Doprava', categoryStats.transport, totalSpent)}
+                        ${this._renderCategoryItem('📦', 'Iné', categoryStats.other, totalSpent)}
+                    </div>
                 </div>
-                <div class="card shadow" style="background: #fff; padding: 1.5rem; border-radius: 1rem; flex: 1; border-left: 5px solid #ef4444;">
-                    <div style="color: var(--text-muted); font-size: 0.875rem; font-weight: 600;">Aktuálne výdavky</div>
-                    <div style="font-size: 1.75rem; font-weight: 800;">${totalSpent.toLocaleString()} €</div>
-                </div>
-                <div class="card shadow" style="background: #fff; padding: 1.5rem; border-radius: 1rem; flex: 1; border-left: 5px solid #3b82f6;">
-                    <div style="color: var(--text-muted); font-size: 0.875rem; font-weight: 600;">Zostáva</div>
-                    <div style="font-size: 1.75rem; font-weight: 800;">${(totalBudget - totalSpent).toLocaleString()} €</div>
+
+                <!-- Karta 2: Upozornenia (Alerts) -->
+                <div class="card shadow" style="padding: 2rem; border-left: 6px solid ${alerts.length ? '#ef4444' : '#10b981'};">
+                    <h3 style="margin-bottom: 1.5rem; font-weight: 800;">
+                        ${alerts.length ? `⚠️ Vyžaduje pozornosť (${alerts.length})` : '✅ Status'}
+                    </h3>
+                    <div style="max-height: 250px; overflow-y: auto; padding-right: 0.5rem;">
+                        ${alerts.length 
+                            ? alerts.map(a => `
+                                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid #f3f4f6;">
+                                    <div>
+                                        <div style="font-weight: 700; font-size: 1rem; color: #111827;">${a.title}</div>
+                                        <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500;">${a.subtitle}</div>
+                                    </div>
+                                    <div style="font-weight: 800; color: #ef4444; font-size: 1rem;">+ ${a.diff.toLocaleString()} €</div>
+                                </div>
+                            `).join('') 
+                            : '<div style="color: var(--text-muted); font-size: 1rem; padding: 1rem 0; font-weight: 500;">Všetky projekty a fázy sú v rámci rozpočtu.</div>'
+                        }
+                    </div>
                 </div>
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2rem; margin-bottom: 2.5rem;">
-                <div class="card shadow" style="padding: 2rem;">
-                    <h3 style="margin-bottom: 1.5rem;">Rozdelenie podľa projektov</h3>
-                    <canvas id="budgetChart" style="max-height: 250px;"></canvas>
-                </div>
-                <div class="card shadow" style="padding: 2rem;">
-                    <h3 style="margin-bottom: 1.5rem;">Rozdelenie podľa kategórií</h3>
-                    <canvas id="categoryChart" style="max-height: 250px;"></canvas>
-                </div>
-                <div class="card shadow" style="padding: 2rem;">
-                    <h3 style="margin-bottom: 1.5rem;">Čerpanie rozpočtu (%)</h3>
-                    <canvas id="progressChart" style="max-height: 250px;"></canvas>
-                </div>
-            </div>
-
-            <h3 style="margin-bottom: 1.5rem;">Aktívne projekty</h3>
+            <h3 style="margin-bottom: 1.5rem; font-weight: 800;">Aktívne projekty</h3>
             <div class="grid">
                 ${projects.length ? projects.map(p => this.createProjectCard(p)).join('') : '<p>Zatiaľ nemáte žiadne projekty.</p>'}
             </div>
         `;
-
-        if (projects.length) {
-            setTimeout(() => this.renderCharts(stats), 10);
-        }
-    },
-
-    renderCharts(stats) {
-        console.log("renderCharts called with:", stats);
-        try {
-            if (typeof Chart === 'undefined') {
-                console.error("Chart.js not loaded!");
-                return;
-            }
-            
-            const projects = Projects.getAll();
-            const globalCategoryStats = {
-                material: 0,
-                labor: 0,
-                transport: 0,
-                other: 0
-            };
-
-            projects.forEach(p => {
-                const pStats = Projects.calculateStats(p);
-                Object.keys(globalCategoryStats).forEach(cat => {
-                    globalCategoryStats[cat] += pStats.categoryStats[cat];
-                });
-            });
-
-            const ctx1 = document.getElementById('budgetChart');
-            if (ctx1) {
-                new Chart(ctx1, {
-                    type: 'doughnut',
-                    data: {
-                        labels: stats.map(s => s.name),
-                        datasets: [{
-                            data: stats.map(s => s.spent),
-                            backgroundColor: ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899']
-                        }]
-                    },
-                    options: { 
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { position: 'bottom' } } 
-                    }
-                });
-            }
-
-            const ctxCat = document.getElementById('categoryChart');
-            if (ctxCat) {
-                new Chart(ctxCat, {
-                    type: 'pie',
-                    data: {
-                        labels: ['Materiál', 'Práca', 'Doprava', 'Iné'],
-                        datasets: [{
-                            data: [
-                                globalCategoryStats.material,
-                                globalCategoryStats.labor,
-                                globalCategoryStats.transport,
-                                globalCategoryStats.other
-                            ],
-                            backgroundColor: ['#10b981', '#3b82f6', '#f59e0b', '#ef4444']
-                        }]
-                    },
-                    options: { 
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { position: 'bottom' } } 
-                    }
-                });
-            }
-
-            const ctx2 = document.getElementById('progressChart');
-            if (ctx2) {
-                new Chart(ctx2, {
-                    type: 'bar',
-                    data: {
-                        labels: stats.map(s => s.name),
-                        datasets: [{
-                            label: '% čerpania',
-                            data: stats.map(s => s.budget > 0 ? (s.spent / s.budget) * 100 : 0),
-                            backgroundColor: '#10b981',
-                            borderRadius: 8
-                        }]
-                    },
-                    options: { 
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: { y: { beginAtZero: true, max: 100 } },
-                        plugins: { legend: { display: false } }
-                    }
-                });
-            }
-        } catch (e) {
-            console.error("Chart render error:", e);
-        }
     },
 
     renderProjects(container) {
@@ -575,17 +529,7 @@ const App = {
         const stats = Projects.calculateStats(project);
         return `
             <div class="card shadow" style="padding: 1.5rem; cursor: pointer; transition: 0.3s;" onclick="App.openProject('${project.id}')" data-project-id="${project.id}">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 1.25rem;">
-                    <h3 style="font-size: 1.15rem; margin: 0; font-weight: 700;">${project.name}</h3>
-                    <span class="badge">${project.type}</span>
-                </div>
-                <div style="height: 10px; background: #f3f4f6; border-radius: 5px; overflow: hidden; margin-bottom: 0.75rem;">
-                    <div style="width: ${stats.progress}%; height: 100%; background: var(--primary); transition: width 0.5s;"></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-size: 0.875rem; color: var(--text-muted); font-weight: 500;">
-                    <span>${stats.progress}% hotovo</span>
-                    <span style="${stats.isOverBudget ? 'color: #ef4444; font-weight: 700;' : ''}">${stats.totalSpent.toLocaleString()} €</span>
-                </div>
+                ${this._generateProjectCardHTML(project, stats)}
             </div>
         `;
     },
