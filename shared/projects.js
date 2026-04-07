@@ -43,6 +43,8 @@ const Projects = {
     addPhase(projectId, name, budget) {
         const project = this.get(projectId);
         if (!project) return;
+
+        if (!Array.isArray(project.phases)) project.phases = [];
         
         const phase = {
             id: Store.generateId(),
@@ -169,6 +171,8 @@ const Projects = {
     addTransaction(projectId, phaseId, amount, description, category = 'material') {
         const project = this.get(projectId);
         if (!project) return;
+
+        if (!Array.isArray(project.transactions)) project.transactions = [];
         
         const transaction = {
             id: Store.generateId(),

@@ -181,6 +181,30 @@ body {
     font-size: 1rem;
 }
 
+.m-icon-btn {
+    border: none;
+    background: transparent;
+    color: var(--primary);
+    padding: 0.35rem;
+    border-radius: 0.75rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.m-icon-btn:active {
+    background: #ecfdf5;
+}
+
+.m-icon-btn-danger {
+    color: #ef4444;
+}
+
+.m-icon-btn-danger:active {
+    background: #fee2e2;
+}
+
 /* Bottom Sheet */
 .bottom-sheet {
     position: fixed;

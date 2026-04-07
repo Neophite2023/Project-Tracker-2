@@ -294,12 +294,28 @@ const App = {
             
             <p style="color: var(--text-muted); margin-bottom: 1.5rem; font-size: 0.9rem;">${project.description || 'Bez popisu'}</p>
 
-            <h4 style="margin-bottom: 1rem; font-weight: 800;">Fázy a úlohy</h4>
-            ${stats.phaseStats.map(ph => `
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+                <h4 style="margin: 0; font-weight: 800;">Fazy a ulohy</h4>
+                <button class="m-icon-btn" onclick="App.showPhaseForm('${project.id}')" aria-label="Pridat fazu">
+                    <i class="fas fa-plus"></i>
+                </button>
+            </div>
+
+            ${stats.phaseStats.length ? stats.phaseStats.map(ph => `
                 <div class="m-phase" data-phase-id="${ph.id}">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-weight: 700; font-size: 0.9rem;">
-                        <span>${ph.name}</span>
-                        <span style="color: ${ph.isOverBudget ? '#ef4444' : 'var(--primary)'}">${ph.progress}%</span>
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <div style="font-weight: 700; font-size: 0.9rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            ${ph.name}
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.25rem; flex-shrink: 0;">
+                            <span style="font-weight: 800; font-size: 0.85rem; color: ${ph.isOverBudget ? '#ef4444' : 'var(--primary)'}">${ph.progress}%</span>
+                            <button class="m-icon-btn" onclick="App.showEditPhaseForm('${project.id}', '${ph.id}')" aria-label="Upravit fazu">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="m-icon-btn m-icon-btn-danger" onclick="App.deletePhase('${project.id}', '${ph.id}')" aria-label="Odstranit fazu">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
                     </div>
                     <div style="height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; margin-bottom: 1rem;">
                         <div style="width: ${ph.progress}%; height: 100%; background: var(--primary);"></div>
@@ -324,7 +340,14 @@ const App = {
                         </button>
                     </div>
                 </div>
-            `).join('')}
+            `).join('') : `
+                <div class="m-phase">
+                    <p style="color: var(--text-muted); font-size: 0.9rem;">Ziadne fazy. Pridaj prvu pre sledovanie progresu.</p>
+                    <button class="m-btn" onclick="App.showPhaseForm('${project.id}')" style="margin-top: 0.75rem;">
+                        <i class="fas fa-plus-circle"></i> Pridat fazu
+                    </button>
+                </div>
+            `}
         `;
 
         document.getElementById('sheetContent').innerHTML = content;
@@ -444,6 +467,133 @@ const App = {
                 if (tasksContainer) tasksContainer.innerHTML = tasksHtml;
             }
         }
+    },
+
+    // --- PHASES (MOBILE) ---
+    showPhaseForm(projectId) {
+        const project = Projects.get(projectId);
+        if (!project) return;
+        this.currentProjectId = projectId;
+
+        document.getElementById('sheetContent').innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h2 style="font-weight: 800;">Pridat fazu</h2>
+                <button class="m-icon-btn" onclick="App.showProjectDetail('${projectId}')" aria-label="Spat">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+            </div>
+
+            <div class="m-phase">
+                <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted);">NAZOV FAZY</label>
+                <input type="text" id="m_ph_name" class="m-input" placeholder="napr. Zaklady">
+
+                <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted);">ROZPOCET (EUR)</label>
+                <input type="number" id="m_ph_budget" class="m-input" placeholder="0.00" inputmode="decimal">
+
+                <button class="m-btn" onclick="App.saveNewPhase('${projectId}')" style="margin-top: 0.25rem;">
+                    <i class="fas fa-check-circle"></i> Pridat fazu
+                </button>
+                <button class="m-btn" onclick="App.showProjectDetail('${projectId}')" style="margin-top: 0.5rem; background: #e5e7eb; color: var(--text-dark);">
+                    <i class="fas fa-arrow-left"></i> Spat
+                </button>
+            </div>
+        `;
+        this.showSheet();
+
+        setTimeout(() => {
+            const nameInput = document.getElementById('m_ph_name');
+            if (nameInput) nameInput.focus();
+        }, 0);
+    },
+
+    saveNewPhase(projectId) {
+        const nameInput = document.getElementById('m_ph_name');
+        const budgetInput = document.getElementById('m_ph_budget');
+        const name = (nameInput && nameInput.value ? nameInput.value : '').trim();
+        const budget = budgetInput && budgetInput.value ? budgetInput.value : 0;
+
+        if (!name) return alert('Zadaj nazov fazy');
+
+        Projects.addPhase(projectId, name, budget);
+        this.refreshProjectCard(projectId);
+        this.showProjectDetail(projectId);
+    },
+
+    showEditPhaseForm(projectId, phaseId) {
+        const project = Projects.get(projectId);
+        if (!project) return;
+        const phase = (project.phases || []).find(p => p.id === phaseId && !p.deleted);
+        if (!phase) return;
+        this.currentProjectId = projectId;
+
+        document.getElementById('sheetContent').innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h2 style="font-weight: 800;">Upravit fazu</h2>
+                <button class="m-icon-btn" onclick="App.showProjectDetail('${projectId}')" aria-label="Spat">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+            </div>
+
+            <div class="m-phase">
+                <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted);">NAZOV FAZY</label>
+                <input type="text" id="m_edit_ph_name" class="m-input" placeholder="napr. Zaklady">
+
+                <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted);">ROZPOCET (EUR)</label>
+                <input type="number" id="m_edit_ph_budget" class="m-input" placeholder="0.00" inputmode="decimal">
+
+                <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted);">OCAKAVANE DODATOCNE NAKLADY (EUR)</label>
+                <input type="number" id="m_edit_ph_extra" class="m-input" placeholder="0.00" inputmode="decimal">
+
+                <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted);">POZNAMKY</label>
+                <textarea id="m_edit_ph_notes" class="m-input" style="height: 90px;"></textarea>
+
+                <button class="m-btn" onclick="App.updatePhase('${projectId}', '${phaseId}')" style="margin-top: 0.25rem;">
+                    <i class="fas fa-check-circle"></i> Ulozit zmeny
+                </button>
+                <button class="m-btn" onclick="App.showProjectDetail('${projectId}')" style="margin-top: 0.5rem; background: #e5e7eb; color: var(--text-dark);">
+                    <i class="fas fa-arrow-left"></i> Spat
+                </button>
+            </div>
+        `;
+        this.showSheet();
+
+        const nameEl = document.getElementById('m_edit_ph_name');
+        const budgetEl = document.getElementById('m_edit_ph_budget');
+        const extraEl = document.getElementById('m_edit_ph_extra');
+        const notesEl = document.getElementById('m_edit_ph_notes');
+        if (nameEl) nameEl.value = phase.name || '';
+        if (budgetEl) budgetEl.value = (phase.budget !== undefined && phase.budget !== null) ? phase.budget : 0;
+        if (extraEl) extraEl.value = (phase.expectedExtra !== undefined && phase.expectedExtra !== null) ? phase.expectedExtra : 0;
+        if (notesEl) notesEl.value = phase.notes || '';
+
+        setTimeout(() => {
+            if (nameEl) nameEl.focus();
+        }, 0);
+    },
+
+    updatePhase(projectId, phaseId) {
+        const nameEl = document.getElementById('m_edit_ph_name');
+        const budgetEl = document.getElementById('m_edit_ph_budget');
+        const extraEl = document.getElementById('m_edit_ph_extra');
+        const notesEl = document.getElementById('m_edit_ph_notes');
+
+        const name = (nameEl && nameEl.value ? nameEl.value : '').trim();
+        const budget = parseFloat(budgetEl && budgetEl.value ? budgetEl.value : 0) || 0;
+        const expectedExtra = parseFloat(extraEl && extraEl.value ? extraEl.value : 0) || 0;
+        const notes = notesEl && typeof notesEl.value === 'string' ? notesEl.value : '';
+
+        if (!name) return alert('Zadaj nazov fazy');
+
+        Projects.updatePhase(projectId, phaseId, { name, budget, expectedExtra, notes });
+        this.refreshProjectCard(projectId);
+        this.showProjectDetail(projectId);
+    },
+
+    deletePhase(projectId, phaseId) {
+        if (!confirm('Odstranit tuto fazu?')) return;
+        Projects.deletePhase(projectId, phaseId);
+        this.refreshProjectCard(projectId);
+        this.showProjectDetail(projectId);
     },
 
     // --- ADD TRANSACTION ---
