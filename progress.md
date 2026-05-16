@@ -189,6 +189,42 @@ Všetky kľúčové funkcie (Desktop, Mobile PWA, Sync, SQLite DB) sú implement
 
 ---
 
+## Update 2026-04-07 - Mobile PWA: CRUD faz (parita s desktop)
+
+### 12. `mobile/app.js` - pridavanie/uprava/zmazanie faz v detaile projektu (bottom sheet)
+**Problem:** V mobile PWA chybala moznost pridat/upravit/odstranit fazu (fungovalo to len v desktop app).
+
+**Zmeny:**
+- V detaile projektu pribudlo tlacidlo **Pridat fazu** + akcie **Upravit** / **Odstranit** pri kazdej faze.
+- Pridane formulare pre pridanie a upravu fazy (name, budget, expectedExtra, notes) priamo v bottom sheete.
+- Po add/edit/delete sa spravi okamzity refresh karty projektu aj detailu (bez reloadu stranky).
+
+**Vysledok:** ✅ Mobile PWA ma plnu zakladnu paritu s desktopom pre fazy (add/edit/delete).
+
+---
+
+### 13. `shared/projects.js` - spevnenie addPhase/addTransaction pre stare data
+**Problem:** Pri starsich importoch alebo nekonzistentnych datach mohli chybat polia `project.phases` / `project.transactions`, co by zhodilo pridavanie.
+
+**Zmeny:**
+- `Projects.addPhase()` inicializuje `project.phases` na `[]`, ak to nie je pole.
+- `Projects.addTransaction()` inicializuje `project.transactions` na `[]`, ak to nie je pole.
+
+**Vysledok:** ✅ Stabilne pridavanie faz a transakcii aj pri "starych" projektoch.
+
+---
+
+### 14. `mobile/sw.js` + `mobile/styles.css` - PWA cache bump + ikonove tlacidla
+**Problem:** Mobil mohol drzat starsiu verziu app.js (Service Worker cache) a chybali stylovane male ikonove tlacidla.
+
+**Zmeny:**
+- Service worker cache `tracker-v15` -> `tracker-v16` (nove buildy sa nacitaju korektne).
+- Pridany styling pre `.m-icon-btn` (edit/delete/plus ikonky v detaile faz).
+
+**Vysledok:** ✅ Po deployi sa mobile aktualizuje a UI akcii je konzistentne.
+
+---
+
 ## Git
 
 - Posledné overenie: 2026-03-23

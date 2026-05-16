@@ -18,6 +18,11 @@ server.log
 srv_err.txt
 srv_out.txt
 
+# Node.js (dočasný npm nástroj)
+node_modules/
+package.json
+package-lock.json
+
 # Systémové súbory
 .DS_Store
 Thumbs.db
